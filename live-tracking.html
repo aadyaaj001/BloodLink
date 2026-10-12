@@ -1,361 +1,393 @@
+
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>BloodLink - Live Delivery Tracking</title>
 
-    <!-- Leaflet CSS -->
-    <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    >
+    <!-- MapLibre -->
+    <link href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css"
+          rel="stylesheet">
+
+    <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
 
     <style>
         body {
-            font-family: Arial, sans-serif;
             margin: 0;
-            padding: 0;
-            background-color: #f5f5f5;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
         }
 
         .header {
-            padding: 20px;
-            background-color: #8B0000;
+            background: #8b0000;
             color: white;
             text-align: center;
+            padding: 18px;
         }
 
         .container {
+            max-width: 1200px;
+            margin: auto;
             padding: 20px;
         }
 
         .tracking-box {
             background: white;
             padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
+            margin-bottom: 18px;
+            box-shadow: 0 2px 10px #00000010;
         }
 
         #map {
             height: 500px;
             width: 100%;
-            border-radius: 8px;
+            border-radius: 12px;
+            overflow: hidden;
         }
 
-        .status {
-            font-size: 18px;
-            margin-top: 10px;
+        .driver-icon, .destination-icon {
+            font-size: 30px;
+            background: white;
+            border: 2px solid #8b0000;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 2px 8px #00000035;
+        }
+
+        .destination-icon {
+            border-color: #176b3a;
         }
 
         .live {
-            color: green;
+            color: #16803c;
             font-weight: bold;
+        }
+
+        @media (max-width: 600px) {
+            .container { padding: 10px; }
+            #map { height: 400px; }
         }
     </style>
 </head>
 
 <body>
-
     <div class="header">
         <h1>BloodLink</h1>
         <p>Live Blood Delivery Tracking</p>
     </div>
 
     <div class="container">
-
         <div class="tracking-box">
-
             <h2>Delivery Tracking</h2>
 
-            <p>
-                <strong>Delivery ID:</strong>
-                <span id="delivery-id">D001</span>
-            </p>
-
-            <p>
-                <strong>Status:</strong>
-                <span id="status">Connecting...</span>
-            </p>
-
-<p>
-    <strong>ETA:</strong>
-    <span id="eta">Calculating...</span>
-</p>
-
-            <p>
-                <strong>Latitude:</strong>
-                <span id="latitude">--</span>
-            </p>
-
-            <p>
-                <strong>Longitude:</strong>
-                <span id="longitude">--</span>
-            </p>
-
-            <p>
-                <strong>Last Updated:</strong>
-                <span id="timestamp">--</span>
-            </p>
-
-            <p class="status">
-                ● <span id="connection-status">Connecting to tracking...</span>
-            </p>
-
+            <p><b>Delivery ID:</b> <span id="delivery-id">Loading...</span></p>
+            <p><b>Status:</b> <span id="status">Connecting...</span></p>
+            <p><b>ETA:</b> <span id="eta">Calculating...</span></p>
+            <p><b>Driver:</b> <span id="driver">Loading...</span></p>
+            <p><b>Phone:</b> <span id="phone">--</span></p>
+            <p><b>Latitude:</b> <span id="latitude">--</span></p>
+            <p><b>Longitude:</b> <span id="longitude">--</span></p>
+            <p><b>Last updated:</b> <span id="timestamp">--</span></p>
+            <p><b>Connection:</b> <span id="connection-status">Connecting...</span></p>
         </div>
+
         <div id="map"></div>
     </div>
 
-    <!-- Leaflet JavaScript -->
-    <script
-        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
-    </script>
-
 <script>
+    // Supports URLs such as /live-tracking.html?delivery_id=D002
+    const params = new URLSearchParams(window.location.search);
+    const deliveryId = params.get("delivery_id") || "D002";
 
-    // Delivery ID to track
-    const deliveryId = "D002";
-
-    // Initial map position
     const initialLatitude = 19.0205;
     const initialLongitude = 73.0935;
 
-    // Create map
-    const map = L.map('map').setView(
-        [initialLatitude, initialLongitude],
-        14
-    );
+    // Temporary testing style. Configure MapTiler for the final map.
+    const map = new maplibregl.Map({
+        container: "map",
+        style: "https://demotiles.maplibre.org/styles/osm-bright-gl-style/style.json",
+        center: [initialLongitude, initialLatitude],
+        zoom: 13
+    });
 
-    // OpenStreetMap tiles
-    L.tileLayer(
-        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        {
-            attribution: '&copy; OpenStreetMap contributors'
-        }
-    ).addTo(map);
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
 
-    // Custom driver marker
-const driverIcon = L.divIcon({
-    className: 'driver-marker',
-    html: '🏍️',
-    iconSize: [60, 60],
-    iconAnchor: [30, 30]
-});
+    const driverElement = document.createElement("div");
+    driverElement.className = "driver-icon";
+    driverElement.textContent = "🏍️";
 
-let deliveryMarker = L.marker(
-    [initialLatitude, initialLongitude],
-    {
-        icon: driverIcon
-    }
-).addTo(map);
+    const driverMarker = new maplibregl.Marker({
+        element: driverElement,
+        anchor: "bottom"
+    })
+    .setLngLat([initialLongitude, initialLatitude])
+    .setPopup(new maplibregl.Popup().setText("BloodLink delivery partner"))
+    .addTo(map);
 
-// Red trail showing the bike's travelled path
-let travelledPath = [
-    [initialLatitude, initialLongitude]
-];
+    const destinationElement = document.createElement("div");
+    destinationElement.className = "destination-icon";
+    destinationElement.textContent = "🏥";
 
-const routeTrail = L.polyline(travelledPath, {
-    color: 'red',
-    weight: 5,
-    opacity: 0.85,
-    lineCap: 'round',
-    lineJoin: 'round'
-}).addTo(map);
-
-    // Destination marker
     let destinationMarker = null;
+    let destinationCoordinates = null;
+    let lastRouteStart = null;
+    let lastRouteDestination = null;
+    let lastDriverCoordinates = null;
+    let locationRequestInProgress = false;
 
-    deliveryMarker.bindPopup(
-        "Blood Delivery: " + deliveryId
-    );
+    document.getElementById("delivery-id").textContent = deliveryId;
 
+    map.on("load", () => {
+        map.addSource("planned-route", {
+            type: "geojson",
+            data: {
+                type: "FeatureCollection",
+                features: []
+            }
+        });
 
-    // =========================================================
-    // GET LATEST DELIVERY LOCATION
-    // =========================================================
+        map.addLayer({
+            id: "planned-route-line",
+            type: "line",
+            source: "planned-route",
+            layout: {
+                "line-join": "round",
+                "line-cap": "round"
+            },
+            paint: {
+                "line-color": "#d71920",
+                "line-width": 6,
+                "line-opacity": 0.9
+            }
+        });
+
+        updateLocation();
+        setInterval(updateLocation, 3000);
+    });
+
+    function showConnection(message) {
+        document.getElementById("connection-status").textContent = message;
+    }
+
+    function validCoordinate(value) {
+        return value !== null &&
+               value !== undefined &&
+               value !== "" &&
+               Number.isFinite(Number(value));
+    }
+
+    function distanceApprox(a, b) {
+        // Approximate distance in metres; sufficient for route refresh decisions.
+        const latDiff = (a[1] - b[1]) * 111000;
+        const lngDiff = (a[0] - b[0]) *
+            111000 * Math.cos(a[1] * Math.PI / 180);
+        return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+    }
+
+    async function drawRoadRoute(start, end) {
+        if (!map.getSource("planned-route")) return;
+
+        const movedEnough =
+            !lastRouteStart || distanceApprox(start, lastRouteStart) > 100;
+
+        const destinationChanged =
+            !lastRouteDestination ||
+            distanceApprox(end, lastRouteDestination) > 20;
+
+        if (!movedEnough && !destinationChanged) return;
+
+        const url =
+            "https://router.project-osrm.org/route/v1/driving/" +
+            `${start[0]},${start[1]};${end[0]},${end[1]}` +
+            "?overview=full&geometries=geojson";
+
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Routing service unavailable");
+
+            const result = await response.json();
+
+            if (result.code !== "Ok" || !result.routes.length) {
+                console.warn("No road route found");
+                return;
+            }
+
+            map.getSource("planned-route").setData({
+                type: "Feature",
+                properties: {},
+                geometry: result.routes[0].geometry
+            });
+
+            lastRouteStart = start;
+            lastRouteDestination = end;
+
+            // Use road-route duration as an ETA estimate.
+            const minutes = Math.ceil(result.routes[0].duration / 60);
+            document.getElementById("eta").textContent =
+                minutes + " minutes (estimated by routing service)";
+        } catch (error) {
+            console.error("Route error:", error);
+            // Keep the last valid route if the routing service temporarily fails.
+        }
+    }
 
     async function updateLocation() {
+        if (locationRequestInProgress) return;
+        locationRequestInProgress = true;
 
-    try {
+        try {
+            const response = await fetch(
+                `/api/delivery/${encodeURIComponent(deliveryId)}/location`
+            );
 
-        const response = await fetch(
-            `/api/delivery/${deliveryId}/location`
-        );
+            if (!response.ok) {
+                throw new Error(`Tracking API returned ${response.status}`);
+            }
 
-        const result = await response.json();
+            const result = await response.json();
 
-        if (!result.success) {
-            document.getElementById("connection-status").textContent =
-                "Delivery not found";
-            return;
-        }
+            if (!result.success || !result.data) {
+                showConnection("Delivery not found");
+                return;
+            }
 
-        const location = result.data;
+            const d = result.data;
 
-        document.getElementById("delivery-id").textContent =
-            location.delivery_id;
+            document.getElementById("delivery-id").textContent =
+                d.delivery_id || deliveryId;
+            document.getElementById("status").textContent =
+                d.status || "Assigned";
+            document.getElementById("driver").textContent =
+                d.partner_name || "Not assigned";
+            document.getElementById("phone").textContent =
+                d.phone || "--";
+            document.getElementById("latitude").textContent =
+                d.latitude ?? "--";
+            document.getElementById("longitude").textContent =
+                d.longitude ?? "--";
+            
+document.getElementById("timestamp").textContent =
+    d.recorded_at
+        ? new Date(d.recorded_at).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: true
+          }) + "IST"
+        : "Waiting for location update";
 
-        document.getElementById("latitude").textContent =
-            location.latitude ?? "--";
 
-        document.getElementById("longitude").textContent =
-            location.longitude ?? "--";
+            if (String(d.status || "").toLowerCase() === "arrived") {
+                document.getElementById("eta").textContent = "Driver has arrived";
+            } else if (!d.destination_latitude || !d.destination_longitude) {
+                document.getElementById("eta").textContent = "Destination unavailable";
+            } else if (d.eta_minutes) {
+                // This is replaced by the OSRM estimate when a route is available.
+                document.getElementById("eta").textContent =
+                    d.eta_minutes + " minutes";
+            }
 
-        const status = location.status || "Assigned";
+            showConnection("Connected to tracking API");
 
-        document.getElementById("status").textContent =
-            status;
+            const hasDriverLocation =
+                validCoordinate(d.latitude) &&
+                validCoordinate(d.longitude);
 
-        const etaMinutes = Number(location.eta_minutes || 0);
+            const hasDestination =
+                validCoordinate(d.destination_latitude) &&
+                validCoordinate(d.destination_longitude);
 
-        document.getElementById("eta").textContent =
-            etaMinutes > 0
-                ? etaMinutes + " minutes"
-                : status.toLowerCase() === "arrived"
-                    ? "Driver has arrived"
-                    : "Calculating...";
+            if (hasDriverLocation) {
+                const driver = [Number(d.longitude), Number(d.latitude)];
 
-        document.getElementById("timestamp").textContent =
-            location.recorded_at
-                ? new Date(location.recorded_at).toLocaleString()
-                : "Waiting for first location update...";
+                driverMarker.setLngLat(driver);
 
-        document.getElementById("connection-status").textContent =
-            "Live tracking active";
-
-        if (
-            location.latitude !== null &&
-            location.longitude !== null
-        ) {
-
-            const newLat = Number(location.latitude);
-            const newLng = Number(location.longitude);
-
-            deliveryMarker.setLatLng([
-                newLat,
-                newLng
-            ]);
-
-            const lastPoint =
-                travelledPath[travelledPath.length - 1];
-
-            if (
-                lastPoint[0] !== newLat ||
-                lastPoint[1] !== newLng
-            ) {
-
-                travelledPath.push([
-                    newLat,
-                    newLng
-                ]);
-
-                routeTrail.setLatLngs(
-                    travelledPath
+                driverMarker.setPopup(
+                    new maplibregl.Popup().setHTML(
+                        "<b>Delivery Partner</b><br>" +
+                        "Name: " + escapeHtml(d.partner_name || "N/A") + "<br>" +
+                        "Vehicle: " + escapeHtml(d.vehicle_type || "N/A") + "<br>" +
+                        "Status: " + escapeHtml(d.status || "N/A")
+                    )
                 );
 
-                map.panTo(
-                    [newLat, newLng],
-                    {
-                        animate: true,
-                        duration: 1
+                lastDriverCoordinates = driver;
+
+                if (hasDestination) {
+                    const destination = [
+                        Number(d.destination_longitude),
+                        Number(d.destination_latitude)
+                    ];
+
+                    if (
+                        !destinationCoordinates ||
+                        distanceApprox(destination, destinationCoordinates) > 1
+                    ) {
+                        destinationCoordinates = destination;
+
+                        if (destinationMarker) destinationMarker.remove();
+
+                        destinationMarker = new maplibregl.Marker({
+                            element: destinationElement,
+                            anchor: "bottom"
+                        })
+                        .setLngLat(destination)
+                        .setPopup(
+                            new maplibregl.Popup().setText(
+                                d.hospital_name || "Destination"
+                            )
+                        )
+                        .addTo(map);
                     }
-                );
-            }
 
-            deliveryMarker.bindPopup(
-                "<b>Delivery Partner</b><br>" +
-                "Name: " +
-                (location.partner_name || "N/A") +
-                "<br>Phone: " +
-                (location.phone || "N/A") +
-                "<br>Vehicle: " +
-                (location.vehicle_type || "N/A") +
-                "<br>Status: " +
-                (location.status || "N/A")
-            );
-        }
-
-        if (
-            location.destination_latitude !== null &&
-            location.destination_longitude !== null
-        ) {
-
-            const destinationLat =
-                Number(location.destination_latitude);
-
-            const destinationLng =
-                Number(location.destination_longitude);
-
-            if (destinationMarker === null) {
-
-                destinationMarker = L.marker([
-                    destinationLat,
-                    destinationLng
-                ]).addTo(map);
-
-                destinationMarker.bindPopup(
-                    "<b>Destination</b><br>" +
-                    (location.hospital_name || "Destination")
-                );
-            }
-        }
-
-        if (
-            location.latitude !== null &&
-            location.longitude !== null &&
-            location.destination_latitude !== null &&
-            location.destination_longitude !== null
-        ) {
-
-            const bounds = L.latLngBounds([
-                [
-                    Number(location.latitude),
-                    Number(location.longitude)
-                ],
-                [
-                    Number(location.destination_latitude),
-                    Number(location.destination_longitude)
-                ]
-            ]);
-
-            map.fitBounds(
-                bounds,
-                {
-                    padding: [40, 40]
+                    await drawRoadRoute(driver, destination);
                 }
-            );
+
+                // Avoid repeatedly zooming the map on every 3-second update.
+                if (!map.userInteracting) {
+                    map.easeTo({
+                        center: driver,
+                        duration: 700
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("Tracking error:", error);
+            showConnection("Connection error — check Flask server");
+        } finally {
+            locationRequestInProgress = false;
         }
-
-    } catch (error) {
-
-        console.error(
-            "Tracking error:",
-            error
-        );
-
-        document.getElementById(
-            "connection-status"
-        ).textContent = "Connection error";
     }
-}
 
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, char => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        })[char]);
+    }
 
-    // =========================================================
-    // START TRACKING
-    // =========================================================
-
-    updateLocation();
-
-
-    // Refresh location every 3 seconds
-    setInterval(
-        updateLocation,
-        3000
-    );
-
+    // Don't force the camera back while the user is exploring the map.
+    map.on("dragstart", () => { map.userInteracting = true; });
+    map.on("zoomstart", () => { map.userInteracting = true; });
+    map.on("dragend", () => {
+        setTimeout(() => { map.userInteracting = false; }, 5000);
+    });
+    map.on("zoomend", () => {
+        setTimeout(() => { map.userInteracting = false; }, 5000);
+    });
 </script>
 </body>
 </html>

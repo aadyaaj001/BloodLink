@@ -8,7 +8,6 @@ import os
 import csv
 import math
 import time
-import psycopg2
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from dotenv import load_dotenv
 from supabase import create_client
@@ -36,26 +35,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-# -------------------------------------------------------------
-# PostgreSQL Database Connection
-# -------------------------------------------------------------
-
-DB_HOST = "localhost"
-DB_PORT = "5433"
-DB_NAME = "bloodlink"
-DB_USER = "postgres"
-DB_PASSWORD = "system"
-
-
-def get_db_connection():
-    return psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        dbname=DB_NAME,
-        user=DB_USER,
-       password =DB_PASSWORD
-    )
 
 # Valid standard blood groups
 VALID_BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
