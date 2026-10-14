@@ -88,9 +88,10 @@
 
             <p><b>Delivery ID:</b> <span id="delivery-id">Loading...</span></p>
             <p><b>Status:</b> <span id="status">Connecting...</span></p>
+            <p><b>Recipient / Customer:</b> <span id="customer-name" style="font-weight: bold; color: #8b0000;">Loading...</span> (<span id="customer-phone">--</span>)</p>
             <p><b>ETA:</b> <span id="eta">Calculating...</span></p>
             <p><b>Driver:</b> <span id="driver">Loading...</span></p>
-            <p><b>Phone:</b> <span id="phone">--</span></p>
+            <p><b>Driver Phone:</b> <span id="phone">--</span></p>
             <p><b>Latitude:</b> <span id="latitude">--</span></p>
             <p><b>Longitude:</b> <span id="longitude">--</span></p>
             <p><b>Last updated:</b> <span id="timestamp">--</span></p>
@@ -101,9 +102,9 @@
     </div>
 
 <script>
-    // Supports URLs such as /live-tracking.html?delivery_id=D002
+    // Supports URLs such as /live-tracking.html?delivery_id=D001
     const params = new URLSearchParams(window.location.search);
-    const deliveryId = params.get("delivery_id") || "D002";
+    const deliveryId = params.get("delivery_id") || "D001";
 
     const initialLatitude = 19.0205;
     const initialLongitude = 73.0935;
@@ -263,6 +264,14 @@
                 d.delivery_id || deliveryId;
             document.getElementById("status").textContent =
                 d.status || "Assigned";
+            if (document.getElementById("customer-name")) {
+                document.getElementById("customer-name").textContent =
+                    d.customer_name || "Emergency Recipient";
+            }
+            if (document.getElementById("customer-phone")) {
+                document.getElementById("customer-phone").textContent =
+                    d.customer_phone || "--";
+            }
             document.getElementById("driver").textContent =
                 d.partner_name || "Not assigned";
             document.getElementById("phone").textContent =

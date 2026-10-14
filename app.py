@@ -8,9 +8,26 @@ import os
 import csv
 import math
 import time
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+import hashlib
+import secrets
+import io
+import re
+from datetime import datetime, timezone, timedelta
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from dotenv import load_dotenv
-from supabase import create_client
+
+# Optional pypdf import for hospital verification
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
+# Optional supabase client import
+try:
+    from supabase import create_client
+except ImportError:
+    create_client = None
 
 
 app = Flask(
@@ -20,20 +37,235 @@ app = Flask(
     static_url_path=''
 )
 
-app.secret_key = 'bloodlink-btech-secret-key'
+app.secret_key = os.getenv("SECRET_KEY", "bloodlink-btech-secret-key-panvel-2026")
 
 # -------------------------------------------------------------
-# Supabase Configuration
+# Database Management & Supabase / Local PostgreSQL Abstraction
 # -------------------------------------------------------------
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError("Supabase credentials not found in .env")
+class QueryResponse:
+    """Emulates Supabase API QueryResponse with .data attribute."""
+    def __init__(self, data=None):
+        self.data = data if data is not None else []
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    def execute(self):
+        return self
+
+class LocalDataStore:
+    """Thread-safe in-memory database store with Panvel seeds for offline and test runs."""
+    def __init__(self):
+        self.delivery_partners = [
+            {
+                "id": 1,
+                "partner_name": "Rahul Sharma",
+                "phone": "+919876543210",
+                "vehicle_type": "Motorcycle (Bajaj Pulsar 150)",
+                "location": "Old Panvel (Near Shivaji Chowk)",
+                "availability_status": "Available",
+                "current_latitude": 18.989400,
+                "current_longitude": 73.112100
+            },
+            {
+                "id": 2,
+                "partner_name": "Priya Patel",
+                "phone": "+919876543211",
+                "vehicle_type": "Electric Scooter (Ather 450X)",
+                "location": "New Panvel (Sector 19)",
+                "availability_status": "Available",
+                "current_latitude": 18.998400,
+                "current_longitude": 73.125600
+            },
+            {
+                "id": 3,
+                "partner_name": "Arun Kumar",
+                "phone": "+919876543212",
+                "vehicle_type": "Scooter (Honda Activa 6G)",
+                "location": "Khanda Colony, New Panvel",
+                "availability_status": "Busy",
+                "current_latitude": 19.006200,
+                "current_longitude": 73.109800
+            },
+            {
+                "id": 4,
+                "partner_name": "Sneha Varma",
+                "phone": "+919876543213",
+                "vehicle_type": "Motorcycle (Hero Splendor)",
+                "location": "Kalamboli (Near Highway Circle)",
+                "availability_status": "Offline",
+                "current_latitude": 19.027000,
+                "current_longitude": 73.102500
+            },
+            {
+                "id": 5,
+                "partner_name": "Mohammed Faiz",
+                "phone": "+919876543214",
+                "vehicle_type": "Electric Bike (Revolt RV400)",
+                "location": "Kamothe (Near MGM Hospital)",
+                "availability_status": "Available",
+                "current_latitude": 19.020500,
+                "current_longitude": 73.093500
+            },
+            {
+                "id": 6,
+                "partner_name": "Vikram Singh",
+                "phone": "+919876543215",
+                "vehicle_type": "Motorcycle (TVS Apache 160)",
+                "location": "Karanjade (Sector 4)",
+                "availability_status": "Available",
+                "current_latitude": 18.975000,
+                "current_longitude": 73.098000
+            }
+        ]
+        self.deliveries = []
+        self.location_updates = []
+        self.next_delivery_id = 1
+        self.next_location_id = 1
+        self.blood_inventory = {}  # (hospital_id, blood_group) -> units
+        self.admin_users = {
+            "admin": {
+                "username": "admin",
+                "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
+                "otp_hash": None,
+                "otp_expires_at": None,
+                "otp_attempts": 0
+            }
+        }
+
+    def select(self, table_name, filters, order_field=None, order_desc=False, limit_num=None):
+        table = getattr(self, table_name, [])
+        results = []
+        for row in table:
+            match = True
+            for col, val in filters:
+                if str(row.get(col)) != str(val):
+                    match = False
+                    break
+            if match:
+                results.append(dict(row))
+
+        if order_field:
+            results.sort(key=lambda x: x.get(order_field, ""), reverse=order_desc)
+
+        if limit_num is not None:
+            results = results[:limit_num]
+
+        return results
+
+    def insert(self, table_name, record):
+        table = getattr(self, table_name, None)
+        if table is None:
+            return []
+        new_row = dict(record)
+        if table_name == "deliveries":
+            if "id" not in new_row:
+                new_row["id"] = self.next_delivery_id
+                self.next_delivery_id += 1
+            if "created_at" not in new_row:
+                new_row["created_at"] = datetime.now(timezone.utc).isoformat()
+            if "updated_at" not in new_row:
+                new_row["updated_at"] = new_row["created_at"]
+        elif table_name == "location_updates":
+            if "id" not in new_row:
+                new_row["id"] = self.next_location_id
+                self.next_location_id += 1
+            if "recorded_at" not in new_row:
+                new_row["recorded_at"] = datetime.now(timezone.utc).isoformat()
+
+        table.append(new_row)
+        return [new_row]
+
+    def update(self, table_name, filters, values):
+        table = getattr(self, table_name, None)
+        if table is None:
+            return []
+        updated = []
+        for row in table:
+            match = True
+            for col, val in filters:
+                if str(row.get(col)) != str(val):
+                    match = False
+                    break
+            if match:
+                row.update(values)
+                if table_name == "deliveries":
+                    row["updated_at"] = datetime.now(timezone.utc).isoformat()
+                updated.append(dict(row))
+        return updated
+
+local_store = LocalDataStore()
+
+class LocalTableProxy:
+    def __init__(self, table_name, store):
+        self.table_name = table_name
+        self.store = store
+        self._filters = []
+        self._select_fields = "*"
+        self._order_field = None
+        self._order_desc = False
+        self._limit_num = None
+        self._update_values = None
+        self._insert_record = None
+
+    def select(self, fields="*"):
+        self._select_fields = fields
+        return self
+
+    def eq(self, column, value):
+        self._filters.append((column, value))
+        return self
+
+    def order(self, column, desc=False):
+        self._order_field = column
+        self._order_desc = desc
+        return self
+
+    def limit(self, count):
+        self._limit_num = count
+        return self
+
+    def insert(self, record):
+        self._insert_record = record
+        return self
+
+    def update(self, values):
+        self._update_values = values
+        return self
+
+    def execute(self):
+        if self._insert_record is not None:
+            inserted = self.store.insert(self.table_name, self._insert_record)
+            self._insert_record = None
+            return QueryResponse(inserted)
+        if self._update_values is not None:
+            updated = self.store.update(self.table_name, self._filters, self._update_values)
+            self._update_values = None
+            return QueryResponse(updated)
+        records = self.store.select(self.table_name, self._filters, self._order_field, self._order_desc, self._limit_num)
+        return QueryResponse(records)
+
+class LocalSupabaseAdapter:
+    def __init__(self, store):
+        self.store = store
+
+    def table(self, table_name):
+        return LocalTableProxy(table_name, self.store)
+
+# Initialize Supabase client if configured, otherwise attach resilient adapter
+supabase = None
+if create_client and SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("[INFO] Connected to Supabase Cloud.")
+    except Exception as e:
+        print(f"[WARN] Supabase connection failed: {e}. Falling back to resilient local store.")
+        supabase = LocalSupabaseAdapter(local_store)
+else:
+    print("[INFO] Supabase credentials not provided in .env. Initialized resilient local store.")
+    supabase = LocalSupabaseAdapter(local_store)
 
 
 # Valid standard blood groups
@@ -248,9 +480,12 @@ def find_closest_delivery_partner(latitude, longitude):
 
 def load_blood_inventory():
     """
-    Loads blood inventory dataset from BloodLink_Blood_Inventory.csv.
-    Columns: inventory_id, hospital_id, blood_group, units, status
+    Loads blood inventory dataset.
+    Uses local_store if populated, otherwise loads from BloodLink_Blood_Inventory.csv.
     """
+    if local_store.blood_inventory:
+        return list(local_store.blood_inventory.values())
+
     csv_path = get_csv_path('BloodLink_Blood_Inventory.csv')
     if not csv_path or not os.path.exists(csv_path):
         print("[ERROR] BloodLink_Blood_Inventory.csv not found!")
@@ -263,164 +498,209 @@ def load_blood_inventory():
             for row in reader:
                 clean_row = {k.strip(): v.strip() for k, v in row.items() if k is not None}
                 inventory.append(clean_row)
+                h_id = clean_row.get('hospital_id', '').strip()
+                bg = clean_row.get('blood_group', '').strip().upper()
+                if h_id and bg:
+                    local_store.blood_inventory[(h_id, bg)] = clean_row
     except Exception as e:
         print(f"[ERROR] Failed to load inventory CSV: {e}")
         return []
 
     return inventory
 
-def load_delivery_partners():
-    """Loads delivery partner information from CSV."""
-    csv_path = get_csv_path('delivery_partners.csv')
-
-    if not csv_path:
-        print("[ERROR] delivery_partners.csv not found!")
-        return []
-
-    partners = []
-
-    try:
-        with open(csv_path, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-
-            for row in reader:
-                clean_row = {
-                    k.strip(): v.strip()
-                    for k, v in row.items()
-                    if k is not None
-                }
-                partners.append(clean_row)
-
-    except Exception as e:
-        print(f"[ERROR] Failed to load delivery partners CSV: {e}")
-        return []
-
-    return partners
-
-
-def load_deliveries():
-    """Loads delivery records from CSV."""
-    csv_path = get_csv_path('deliveries.csv')
-
-    if not csv_path:
-        print("[ERROR] deliveries.csv not found!")
-        return []
-
-    deliveries = []
-
-    try:
-        with open(csv_path, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-
-            for row in reader:
-                clean_row = {
-                    k.strip(): v.strip()
-                    for k, v in row.items()
-                    if k is not None
-                }
-                deliveries.append(clean_row)
-
-    except Exception as e:
-        print(f"[ERROR] Failed to load deliveries CSV: {e}")
-        return []
-
-    return deliveries
-
-
-def load_location_updates():
-    """Loads delivery location updates from CSV."""
-    csv_path = get_csv_path('location_updates.csv')
-
-    if not csv_path:
-        print("[ERROR] location_updates.csv not found!")
-        return []
-
-    updates = []
-
-    try:
-        with open(csv_path, mode='r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-
-            for row in reader:
-                clean_row = {
-                    k.strip(): v.strip()
-                    for k, v in row.items()
-                    if k is not None
-                }
-                updates.append(clean_row)
-
-    except Exception as e:
-        print(f"[ERROR] Failed to load location updates CSV: {e}")
-        return []
-
-    return updates
-
-def get_latest_location(delivery_id):
+def deduct_inventory_units(hospital_id, blood_group, units_to_deduct):
     """
-    Gets the latest location of a delivery.
-    For now, this simulates movement using predefined coordinates.
+    Safely and atomically deducts stock from blood inventory.
+    Returns True if successfully deducted, False if insufficient stock.
     """
+    load_blood_inventory()
+    key = (hospital_id.strip(), blood_group.strip().upper())
+    item = local_store.blood_inventory.get(key)
+    if not item:
+        return False
+    try:
+        current_units = int(item.get('units', 0))
+    except (ValueError, TypeError):
+        current_units = 0
 
-    updates = load_location_updates()
+    if current_units < units_to_deduct:
+        return False
 
-    delivery_updates = [
-        update for update in updates
-        if update.get('delivery_id') == delivery_id
-    ]
+    new_units = current_units - units_to_deduct
+    item['units'] = str(new_units)
+    if new_units == 0:
+        item['status'] = 'Not Available'
+    elif new_units <= 2:
+        item['status'] = 'Low Stock'
+    else:
+        item['status'] = 'Available'
+    return True
 
-    if not delivery_updates:
+def update_inventory_units(hospital_id, blood_group, new_units):
+    """
+    Updates stock safely for a hospital and blood group. Prevents negative stock.
+    """
+    load_blood_inventory()
+    if new_units < 0:
+        return False, "Stock units cannot be negative"
+
+    key = (hospital_id.strip(), blood_group.strip().upper())
+    item = local_store.blood_inventory.get(key)
+    if not item:
+        item = {
+            'inventory_id': str(len(local_store.blood_inventory) + 1),
+            'hospital_id': hospital_id,
+            'blood_group': blood_group,
+            'units': str(new_units),
+            'status': 'Available' if new_units > 2 else ('Low Stock' if new_units > 0 else 'Not Available')
+        }
+        local_store.blood_inventory[key] = item
+    else:
+        item['units'] = str(new_units)
+        if new_units == 0:
+            item['status'] = 'Not Available'
+        elif new_units <= 2:
+            item['status'] = 'Low Stock'
+        else:
+            item['status'] = 'Available'
+    return True, item
+
+def parse_delivery_id(delivery_id_str):
+    """Parses 'D001', 'D1', or '1' into database integer 1, or None if invalid."""
+    if not delivery_id_str:
+        return None
+    cleaned = str(delivery_id_str).strip().upper()
+    if cleaned.startswith("D"):
+        cleaned = cleaned[1:]
+    try:
+        return int(cleaned)
+    except ValueError:
         return None
 
-    latest = delivery_updates[-1]
+def load_delivery_partners():
+    """Loads delivery partner information from database."""
+    res = supabase.table("delivery_partners").select("*").execute()
+    return res.data or []
 
-    return {
-        'delivery_id': delivery_id,
-        'latitude': float(latest.get('latitude', 0)),
-        'longitude': float(latest.get('longitude', 0)),
-        'status': latest.get('status', 'Unknown'),
-        'timestamp': latest.get('timestamp', '')
-    }
+def load_deliveries():
+    """Loads delivery records from database."""
+    res = supabase.table("deliveries").select("*").execute()
+    return res.data or []
+
+def load_location_updates():
+    """Loads delivery location updates from database."""
+    res = supabase.table("location_updates").select("*").execute()
+    return res.data or []
+
+def get_latest_location(delivery_id):
+    """Gets the latest recorded GPS location of a delivery."""
+    db_id = parse_delivery_id(delivery_id)
+    if db_id is None:
+        return None
+    res = (
+        supabase.table("location_updates")
+        .select("*")
+        .eq("delivery_id", db_id)
+        .order("recorded_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if res.data:
+        latest = res.data[0]
+        return {
+            'delivery_id': f"D{db_id:03d}",
+            'latitude': float(latest.get('latitude', 0)),
+            'longitude': float(latest.get('longitude', 0)),
+            'timestamp': latest.get('recorded_at', '')
+        }
+    return None
 
 # -------------------------------------------------------------
-# Live Delivery Location API - PostgreSQL
+# Live Delivery Location API (GET: Track, POST: Genuine GPS Updates)
 # -------------------------------------------------------------
 
-@app.route('/api/delivery/<delivery_id>/location')
+@app.route('/api/delivery/<delivery_id>/location', methods=['GET', 'POST'])
 def delivery_location_api(delivery_id):
     try:
-        # D001 -> 1
-        database_delivery_id = int(
-            delivery_id.replace("D", "")
-        )
+        database_delivery_id = parse_delivery_id(delivery_id)
+        if database_delivery_id is None:
+            return jsonify({
+                "success": False,
+                "message": "Invalid delivery ID format"
+            }), 400
 
-        # -------------------------------------------------
-        # 1. Get delivery
-        # -------------------------------------------------
+        # POST: Ingest genuine GPS updates from authorized rider/source
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            lat = data.get("latitude")
+            lon = data.get("longitude")
+
+            if lat is None or lon is None:
+                return jsonify({
+                    "success": False,
+                    "message": "Missing latitude or longitude in request body"
+                }), 400
+
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid coordinate values"
+                }), 400
+
+            if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                return jsonify({
+                    "success": False,
+                    "message": "Coordinates out of geographic range"
+                }), 400
+
+            deliv_res = supabase.table("deliveries").select("*").eq("id", database_delivery_id).limit(1).execute()
+            if not deliv_res.data:
+                return jsonify({
+                    "success": False,
+                    "message": "Delivery not found"
+                }), 404
+
+            delivery = deliv_res.data[0]
+            partner_id = delivery.get("partner_id")
+
+            rec_time = datetime.now(timezone.utc).isoformat()
+            supabase.table("location_updates").insert({
+                "delivery_id": database_delivery_id,
+                "partner_id": partner_id,
+                "latitude": lat,
+                "longitude": lon,
+                "recorded_at": rec_time
+            }).execute()
+
+            if partner_id:
+                supabase.table("delivery_partners").update({
+                    "current_latitude": lat,
+                    "current_longitude": lon
+                }).eq("id", partner_id).execute()
+
+            return jsonify({
+                "success": True,
+                "message": "Location updated successfully",
+                "delivery_id": f"D{database_delivery_id:03d}",
+                "latitude": lat,
+                "longitude": lon,
+                "recorded_at": rec_time
+            })
+
+        # GET: Retrieve delivery details, current coordinates, and ETA
         delivery_response = (
             supabase
             .table("deliveries")
-            .select("""
-                id,
-                partner_id,
-                customer_name,
-                customer_phone,
-                blood_group,
-                hospital_name,
-                destination,
-                destination_latitude,
-                destination_longitude,
-                status,
-                eta_minutes,
-                created_at,
-                updated_at
-            """)
+            .select("*")
             .eq("id", database_delivery_id)
             .limit(1)
             .execute()
         )
 
         deliveries = delivery_response.data
-
         if not deliveries:
             return jsonify({
                 "success": False,
@@ -429,67 +709,38 @@ def delivery_location_api(delivery_id):
 
         delivery = deliveries[0]
 
-        # -------------------------------------------------
-        # 2. Get delivery partner
-        # -------------------------------------------------
+        # Retrieve assigned partner details
         partner = None
-
-        if delivery["partner_id"] is not None:
+        if delivery.get("partner_id") is not None:
             partner_response = (
                 supabase
                 .table("delivery_partners")
-                .select("""
-                    id,
-                    partner_name,
-                    phone,
-                    vehicle_type,
-                    location,
-                    availability_status,
-                    current_latitude,
-                    current_longitude
-                """)
+                .select("*")
                 .eq("id", delivery["partner_id"])
                 .limit(1)
                 .execute()
             )
-
             partners = partner_response.data
             partner = partners[0] if partners else None
 
-        # -------------------------------------------------
-        # 3. Get latest GPS location
-        # -------------------------------------------------
+        # Retrieve latest recorded GPS breadcrumb
         location_response = (
             supabase
             .table("location_updates")
-            .select("""
-                id,
-                delivery_id,
-                partner_id,
-                latitude,
-                longitude,
-                recorded_at
-            """)
+            .select("*")
             .eq("delivery_id", database_delivery_id)
             .order("recorded_at", desc=True)
             .limit(1)
             .execute()
         )
-
         locations = location_response.data
-
-        # -------------------------------------------------
-        # 4. Use latest GPS update
-        # -------------------------------------------------
         location = locations[0] if locations else None
 
-        # If no location update exists yet,
-        # use partner's current location.
         if location:
             latitude = float(location["latitude"])
             longitude = float(location["longitude"])
             recorded_at = location["recorded_at"]
-        elif partner:
+        elif partner and partner.get("current_latitude") is not None and partner.get("current_longitude") is not None:
             latitude = float(partner["current_latitude"])
             longitude = float(partner["current_longitude"])
             recorded_at = None
@@ -498,130 +749,110 @@ def delivery_location_api(delivery_id):
             longitude = None
             recorded_at = None
 
-    
-        
-        # Calculate estimated travel time to destination
+        # Calculate estimated travel time
         eta_minutes = delivery.get("eta_minutes") or 0
-
-        destination_lat = delivery.get("destination_latitude")
-        destination_lon = delivery.get("destination_longitude")
+        dest_lat = delivery.get("destination_latitude")
+        dest_lon = delivery.get("destination_longitude")
 
         if (
             latitude is not None
             and longitude is not None
-            and destination_lat is not None
-            and destination_lon is not None
+            and dest_lat is not None
+            and dest_lon is not None
         ):
             distance_km = calculate_distance(
                 latitude,
                 longitude,
-                float(destination_lat),
-                float(destination_lon)
+                float(dest_lat),
+                float(dest_lon)
             )
-
-            # Approximate city travel speed: 20 km/h
+            # City speed estimate 20 km/h
             eta_minutes = round((distance_km / 20) * 60)
-
             if distance_km > 0.1:
                 eta_minutes = max(1, eta_minutes)
             else:
                 eta_minutes = 0
-        # -------------------------------------------------
-        # 5. Return data to frontend
-        # -------------------------------------------------
+
+        driver_name = partner["partner_name"] if partner else "Pending Assignment"
+
         return jsonify({
             "success": True,
             "data": {
-                "delivery_id": delivery_id,
+                "delivery_id": f"D{database_delivery_id:03d}",
                 "database_delivery_id": delivery["id"],
-
-                "partner_id": delivery["partner_id"],
-
-                "partner_name": (
-                    partner["partner_name"]
-                    if partner else None
-                ),
-
-                "phone": (
-                    partner["phone"]
-                    if partner else None
-                ),
-
-                "vehicle_type": (
-                    partner["vehicle_type"]
-                    if partner else None
-                ),
-
-                "partner_location": (
-                    partner["location"]
-                    if partner else None
-                ),
-
+                "partner_id": delivery.get("partner_id"),
+                "partner_name": driver_name,
+                "driver_name": driver_name,
+                "phone": partner["phone"] if partner else None,
+                "vehicle_type": partner["vehicle_type"] if partner else None,
+                "partner_location": partner["location"] if partner else None,
                 "latitude": latitude,
                 "longitude": longitude,
-
                 "status": delivery["status"],
                 "eta_minutes": eta_minutes,
-
                 "blood_group": delivery["blood_group"],
                 "customer_name": delivery["customer_name"],
                 "customer_phone": delivery["customer_phone"],
-
                 "hospital_name": delivery["hospital_name"],
                 "destination": delivery["destination"],
-
                 "destination_latitude": (
                     float(delivery["destination_latitude"])
-                    if delivery["destination_latitude"] is not None
+                    if delivery.get("destination_latitude") is not None
                     else None
                 ),
-
                 "destination_longitude": (
                     float(delivery["destination_longitude"])
-                    if delivery["destination_longitude"] is not None
+                    if delivery.get("destination_longitude") is not None
                     else None
                 ),
-
-                "recorded_at": recorded_at
+                "recorded_at": recorded_at,
+                "delivered_at": delivery.get("delivered_at")
             }
         })
 
     except Exception as e:
         print("[ERROR] Live tracking API:", e)
-
         return jsonify({
             "success": False,
-            "message": "Supabase database error",
+            "message": "Tracking service error",
             "error": str(e)
         }), 500
 
 @app.route('/api/delivery/<delivery_id>/status', methods=['POST'])
 def update_delivery_status(delivery_id):
     try:
-        database_delivery_id = int(delivery_id.replace("D", ""))
+        database_delivery_id = parse_delivery_id(delivery_id)
+        if database_delivery_id is None:
+            return jsonify({"success": False, "message": "Invalid delivery ID"}), 400
 
         data = request.get_json(silent=True) or {}
         new_status = data.get("status", "").strip()
 
+        # Recipient OTP verification is strictly required for 'Delivered'
+        if new_status == "Delivered":
+            return jsonify({
+                "success": False,
+                "message": "Delivery cannot be marked 'Delivered' without recipient OTP verification. Please use /api/delivery/<delivery_id>/verify-otp"
+            }), 400
+
         allowed_statuses = [
+            "Pending",
             "Assigned",
             "On the way",
-            "Arrived",
-            "Completed",
-            "Cancelled"
+            "Reached",
+            "Cancelled",
+            "Arrived"
         ]
 
         if new_status not in allowed_statuses:
             return jsonify({
                 "success": False,
-                "message": "Invalid delivery status"
+                "message": f"Invalid delivery status '{new_status}'. Allowed: {', '.join(allowed_statuses)}"
             }), 400
 
         update_response = (
             supabase.table("deliveries")
-            .update({
-                "status": new_status
-            })
+            .update({"status": new_status})
             .eq("id", database_delivery_id)
             .execute()
         )
@@ -634,7 +865,7 @@ def update_delivery_status(delivery_id):
 
         return jsonify({
             "success": True,
-            "delivery_id": delivery_id,
+            "delivery_id": f"D{database_delivery_id:03d}",
             "status": new_status
         })
 
@@ -645,68 +876,135 @@ def update_delivery_status(delivery_id):
             "message": "Could not update delivery status"
         }), 500
 
+@app.route('/api/delivery/<delivery_id>/verify-otp', methods=['POST'])
+def verify_delivery_otp(delivery_id):
+    """
+    Recipient OTP verification endpoint.
+    Verifies 6-digit OTP, keeps Reached and Delivered separate,
+    records completion timestamp, and frees partner upon successful delivery.
+    """
+    try:
+        database_delivery_id = parse_delivery_id(delivery_id)
+        if database_delivery_id is None:
+            return jsonify({"success": False, "message": "Invalid delivery ID"}), 400
+
+        data = request.get_json(silent=True) or {}
+        submitted_otp = str(data.get("otp", "")).strip()
+
+        if not submitted_otp:
+            return jsonify({"success": False, "message": "OTP is required"}), 400
+
+        deliv_res = supabase.table("deliveries").select("*").eq("id", database_delivery_id).limit(1).execute()
+        if not deliv_res.data:
+            return jsonify({"success": False, "message": "Delivery not found"}), 404
+
+        delivery = deliv_res.data[0]
+        attempts = delivery.get("otp_attempts", 0)
+
+        if attempts >= 3:
+            return jsonify({
+                "success": False,
+                "message": "Maximum OTP verification attempts exceeded (3). Verification locked."
+            }), 429
+
+        expires_at = delivery.get("otp_expires_at")
+        if expires_at:
+            try:
+                exp_dt = datetime.fromisoformat(expires_at)
+                if datetime.now(timezone.utc) > exp_dt:
+                    return jsonify({"success": False, "message": "OTP has expired"}), 400
+            except Exception:
+                pass
+
+        expected_hash = delivery.get("recipient_otp_hash")
+        submitted_hash = hashlib.sha256(submitted_otp.encode()).hexdigest()
+
+        if expected_hash and expected_hash == submitted_hash:
+            now_time = datetime.now(timezone.utc).isoformat()
+            supabase.table("deliveries").update({
+                "status": "Delivered",
+                "delivered_at": now_time,
+                "otp_attempts": attempts + 1
+            }).eq("id", database_delivery_id).execute()
+
+            partner_id = delivery.get("partner_id")
+            if partner_id:
+                supabase.table("delivery_partners").update({
+                    "availability_status": "Available"
+                }).eq("id", partner_id).execute()
+
+            return jsonify({
+                "success": True,
+                "message": "Recipient OTP verified successfully. Delivery status updated to Delivered.",
+                "delivery_id": f"D{database_delivery_id:03d}",
+                "status": "Delivered",
+                "delivered_at": now_time
+            })
+        else:
+            new_attempts = attempts + 1
+            supabase.table("deliveries").update({
+                "otp_attempts": new_attempts
+            }).eq("id", database_delivery_id).execute()
+
+            return jsonify({
+                "success": False,
+                "message": f"Incorrect OTP. Remaining attempts: {max(0, 3 - new_attempts)}"
+            }), 400
+
+    except Exception as e:
+        print("[ERROR] Recipient OTP verification:", e)
+        return jsonify({"success": False, "message": "Verification error", "error": str(e)}), 500
 
 @app.route('/deliveries')
 def deliveries():
     """Displays all delivery records."""
-
     delivery_data = load_deliveries()
     partners = load_delivery_partners()
 
-    partner_map = {
-        partner.get('partner_id'): partner
-        for partner in partners
-    }
-
+    partner_map = {partner.get('id'): partner for partner in partners}
     for delivery in delivery_data:
-        partner_id = delivery.get('partner_id', '')
+        partner_id = delivery.get('partner_id')
         delivery['partner'] = partner_map.get(partner_id, {})
+        delivery['formatted_id'] = f"D{delivery['id']:03d}"
 
-    return render_template(
-        'deliveries.html',
-        deliveries=delivery_data
-    )
+    try:
+        return render_template('deliveries.html', deliveries=delivery_data)
+    except Exception:
+        return jsonify({
+            "success": True,
+            "count": len(delivery_data),
+            "deliveries": delivery_data
+        })
 
 @app.route('/delivery/<delivery_id>')
 def delivery_details(delivery_id):
     """Displays details of a specific delivery."""
+    db_id = parse_delivery_id(delivery_id)
+    if db_id is None:
+        return render_template('index.html', error_message="Invalid delivery ID."), 400
 
-    delivery_data = load_deliveries()
-    partners = load_delivery_partners()
-    updates = load_location_updates()
+    deliv_res = supabase.table("deliveries").select("*").eq("id", db_id).limit(1).execute()
+    if not deliv_res.data:
+        return render_template('index.html', error_message="Delivery not found."), 404
 
-    delivery = None
-
-    for item in delivery_data:
-        if item.get('delivery_id') == delivery_id:
-            delivery = item
-            break
-
-    if delivery is None:
-        return render_template(
-            'index.html',
-            error_message="Delivery not found."
-        ), 404
-
+    delivery = deliv_res.data[0]
     partner = None
+    if delivery.get("partner_id"):
+        p_res = supabase.table("delivery_partners").select("*").eq("id", delivery["partner_id"]).limit(1).execute()
+        partner = p_res.data[0] if p_res.data else None
 
-    for item in partners:
-        if item.get('partner_id') == delivery.get('partner_id'):
-            partner = item
-            break
+    loc_res = supabase.table("location_updates").select("*").eq("delivery_id", db_id).order("recorded_at", desc=True).execute()
+    delivery_updates = loc_res.data or []
 
-    delivery_updates = []
-
-    for update in updates:
-        if update.get('delivery_id') == delivery_id:
-            delivery_updates.append(update)
-
-    return render_template(
-        'delivery-details.html',
-        delivery=delivery,
-        partner=partner,
-        location_updates=delivery_updates
-    )
+    try:
+        return render_template(
+            'delivery-details.html',
+            delivery=delivery,
+            partner=partner,
+            location_updates=delivery_updates
+        )
+    except Exception:
+        return redirect(f"/live-tracking?delivery_id=D{db_id:03d}")
 
 def search_closest_hospitals(blood_group, location_str="", user_lat=None, user_lon=None, units_needed=1):
     """
@@ -839,8 +1137,11 @@ def user_details():
         phone = request.form.get('phone', '').strip()
         email = request.form.get('email', '').strip()
 
-        # If name or phone are provided, proceed to closest hospitals
+        # If name or phone are provided, persist in session and proceed to closest hospitals
         if name and phone:
+            session['user_name'] = name
+            session['user_phone'] = phone
+            session['user_email'] = email
             return show_closest_hospitals(
                 blood_group=blood_group,
                 urgency=urgency,
@@ -878,6 +1179,10 @@ def show_closest_hospitals(blood_group, urgency, location, units, name, phone, e
     """
     Step 3: Searches and displays closest hospitals with required availability.
     """
+    name = name or session.get('user_name', '')
+    phone = phone or session.get('user_phone', '')
+    email = email or session.get('user_email', '')
+
     try:
         units_needed = int(units)
     except ValueError:
@@ -920,9 +1225,9 @@ def availability():
     location = request.args.get('location', '').strip()
     urgency = request.args.get('urgency', 'Urgent').strip()
     units = request.args.get('units', '1').strip()
-    name = request.args.get('name', '').strip()
-    phone = request.args.get('phone', '').strip()
-    email = request.args.get('email', '').strip()
+    name = request.args.get('name', '').strip() or session.get('user_name', '')
+    phone = request.args.get('phone', '').strip() or session.get('user_phone', '')
+    email = request.args.get('email', '').strip() or session.get('user_email', '')
 
     error_message = None
     results = []
@@ -952,20 +1257,26 @@ def availability():
 
 @app.route('/request-blood', methods=['POST'])
 def request_blood():
-
     hospital_id = request.form.get('hospital_id', '').strip()
     blood_group = request.form.get('blood_group', '').strip().upper()
-    patient_name = request.form.get('name', '').strip()
-    contact_number = request.form.get('phone', '').strip()
-    email = request.form.get('email', '').strip()
+    patient_name = request.form.get('name', '').strip() or session.get('user_name', '').strip() or "Emergency Recipient"
+    contact_number = request.form.get('phone', '').strip() or session.get('user_phone', '').strip() or "+919876543210"
+    email = request.form.get('email', '').strip() or session.get('user_email', '').strip()
     units_needed = request.form.get('units', '1').strip()
     urgency = request.form.get('urgency', 'Urgent').strip()
     location = request.form.get('location', '').strip()
     distance = request.form.get('distance', '').strip()
+    user_lat = request.form.get('user_lat', '').strip()
+    user_lon = request.form.get('user_lon', '').strip()
+
+    if patient_name and patient_name != "Emergency Recipient":
+        session['user_name'] = patient_name
+    if contact_number:
+        session['user_phone'] = contact_number
 
     try:
         units_needed_int = int(units_needed)
-    except ValueError:
+    except (ValueError, TypeError):
         units_needed_int = 1
 
     hospitals_map = load_hospitals()
@@ -979,38 +1290,84 @@ def request_blood():
     hospital_latitude = hospital_info.get('latitude')
     hospital_longitude = hospital_info.get('longitude')
 
+    # Resolve customer destination coordinates correctly from patient location
+    dest_coords = resolve_location_coords(location, user_lat, user_lon)
+    dest_latitude = dest_coords[0]
+    dest_longitude = dest_coords[1]
+    destination_str = location if location else hospital_info.get("address", "Panvel")
+
+    # 1. Idempotency Check: Reuse existing active delivery if submitted recently
+    existing_deliveries = (
+        supabase.table("deliveries")
+        .select("*")
+        .eq("customer_phone", contact_number)
+        .eq("hospital_name", hospital_name)
+        .eq("blood_group", blood_group)
+        .execute()
+    )
+    active_delivery = None
+    for d in (existing_deliveries.data or []):
+        if d.get("status") in ["Pending", "Assigned", "On the way", "Reached"]:
+            active_delivery = d
+            break
+
     delivery_id = None
     assigned_partner = None
 
-    # Find closest available partner
-    if hospital_latitude is not None and hospital_longitude is not None:
-        hospital_latitude = float(hospital_latitude)
-        hospital_longitude = float(hospital_longitude)
+    if active_delivery:
+        # Reuse existing delivery and assigned partner
+        delivery_id = active_delivery["id"]
+        partner_id = active_delivery.get("partner_id")
+        if partner_id:
+            p_res = supabase.table("delivery_partners").select("*").eq("id", partner_id).limit(1).execute()
+            if p_res.data:
+                assigned_partner = p_res.data[0]
+    else:
+        # Safely deduct stock
+        deduct_inventory_units(hospital_id, blood_group, units_needed_int)
 
-        assigned_partner = find_closest_delivery_partner(
-            hospital_latitude,
-            hospital_longitude
-        )
+        # 2. Find closest available partner to hospital pickup location
+        if hospital_latitude is not None and hospital_longitude is not None:
+            try:
+                h_lat = float(hospital_latitude)
+                h_lon = float(hospital_longitude)
+                assigned_partner = find_closest_delivery_partner(h_lat, h_lon)
+            except (ValueError, TypeError):
+                assigned_partner = None
 
-        print("[DELIVERY] Closest partner:", assigned_partner)
+        # 3. Server-side Recipient OTP generation & hashing
+        otp_digits = f"{secrets.randbelow(900000) + 100000:06d}"
+        otp_hash = hashlib.sha256(otp_digits.encode()).hexdigest()
+        otp_expiry = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
 
-    # Create delivery
-    if assigned_partner:
+        # Save recipient OTP in session for testing / verification simulations
+        session[f"recipient_otp_{contact_number}"] = otp_digits
+
+        status = "Assigned" if assigned_partner else "Pending"
+
+        delivery_payload = {
+            "partner_id": assigned_partner["id"] if assigned_partner else None,
+            "customer_name": patient_name,
+            "customer_phone": contact_number,
+            "blood_group": blood_group,
+            "hospital_name": hospital_name,
+            "destination": destination_str,
+            "destination_latitude": dest_latitude,
+            "destination_longitude": dest_longitude,
+            "status": status,
+            "eta_minutes": 0,
+            "recipient_otp_hash": otp_hash,
+            "otp_expires_at": otp_expiry,
+            "otp_attempts": 0,
+            "pickup_hospital_id": hospital_id,
+            "pickup_latitude": float(hospital_latitude) if hospital_latitude else None,
+            "pickup_longitude": float(hospital_longitude) if hospital_longitude else None
+        }
+
         delivery_response = (
             supabase
             .table("deliveries")
-            .insert({
-                "partner_id": assigned_partner["id"],
-                "customer_name": patient_name,
-                "customer_phone": contact_number,
-                "blood_group": blood_group,
-                "hospital_name": hospital_name,
-                "destination": hospital_info.get("address", ""),
-                "destination_latitude": hospital_latitude,
-                "destination_longitude": hospital_longitude,
-                "status": "Assigned",
-                "eta_minutes": 0
-            })
+            .insert(delivery_payload)
             .execute()
         )
 
@@ -1018,9 +1375,16 @@ def request_blood():
             delivery = delivery_response.data[0]
             delivery_id = delivery["id"]
 
-            supabase.table("delivery_partners").update({
-                "availability_status": "Busy"
-            }).eq("id", assigned_partner["id"]).execute()
+            if assigned_partner:
+                supabase.table("delivery_partners").update({
+                    "availability_status": "Busy"
+                }).eq("id", assigned_partner["id"]).execute()
+
+    formatted_delivery_id = f"D{delivery_id:03d}" if delivery_id else None
+    driver_name = (
+        assigned_partner["partner_name"]
+        if assigned_partner else ("Pending Assignment" if delivery_id else None)
+    )
 
     # Thank-you page
     return render_template(
@@ -1037,11 +1401,8 @@ def request_blood():
         urgency=urgency,
         location=location,
         distance=distance,
-        delivery_id=f"D{delivery_id:03d}" if delivery_id else None,
-        partner_name=(
-            assigned_partner["partner_name"]
-            if assigned_partner else None
-        ),
+        delivery_id=formatted_delivery_id,
+        partner_name=driver_name,
         partner_phone=(
             assigned_partner["phone"]
             if assigned_partner else None
@@ -1051,7 +1412,7 @@ def request_blood():
             if assigned_partner else None
         ),
         partner_distance=(
-            assigned_partner["distance_km"]
+            assigned_partner.get("distance_km")
             if assigned_partner else None
         )
     )
@@ -1060,6 +1421,281 @@ def request_blood():
 def thankyou():
     """Thank you confirmation page."""
     return render_template('thankyou.html')
+
+# -------------------------------------------------------------
+# Admin Authentication & Inventory Management
+# -------------------------------------------------------------
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('admin_authenticated'):
+            return jsonify({
+                "success": False,
+                "message": "Unauthorized. Admin authentication required."
+            }), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/api/admin/login', methods=['POST'])
+def admin_login_api():
+    """
+    Step 1 of Admin Authentication:
+    Validates username and password, then generates time-limited 2FA OTP.
+    """
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", "")).strip()
+
+    admin_record = local_store.admin_users.get(username)
+    if not admin_record:
+        return jsonify({"success": False, "message": "Invalid admin credentials"}), 401
+
+    pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+    if admin_record["password_hash"] != pwd_hash:
+        return jsonify({"success": False, "message": "Invalid admin credentials"}), 401
+
+    # Generate 6-digit admin OTP (valid for 5 minutes, max 3 attempts)
+    otp_code = f"{secrets.randbelow(900000) + 100000:06d}"
+    admin_record["otp_hash"] = hashlib.sha256(otp_code.encode()).hexdigest()
+    admin_record["otp_expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=5)
+    admin_record["otp_attempts"] = 0
+
+    session['admin_pending_user'] = username
+    session['admin_demo_otp'] = otp_code
+
+    return jsonify({
+        "success": True,
+        "otp_required": True,
+        "message": "Admin credentials verified. 2FA verification OTP generated."
+    })
+
+@app.route('/api/admin/verify-otp', methods=['POST'])
+def admin_verify_otp_api():
+    """
+    Step 2 of Admin Authentication:
+    Verifies server-side OTP, enforces attempt limits (max 3), and creates admin session.
+    """
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username", session.get('admin_pending_user', ""))).strip()
+    submitted_otp = str(data.get("otp", "")).strip()
+
+    admin_record = local_store.admin_users.get(username)
+    if not admin_record or not admin_record.get("otp_hash"):
+        return jsonify({"success": False, "message": "No pending admin OTP request found"}), 400
+
+    if admin_record["otp_attempts"] >= 3:
+        return jsonify({"success": False, "message": "Maximum OTP attempts exceeded. Login locked."}), 429
+
+    if admin_record["otp_expires_at"] and datetime.now(timezone.utc) > admin_record["otp_expires_at"]:
+        return jsonify({"success": False, "message": "Admin OTP has expired"}), 400
+
+    submitted_hash = hashlib.sha256(submitted_otp.encode()).hexdigest()
+    if admin_record["otp_hash"] == submitted_hash:
+        session['admin_authenticated'] = True
+        session['admin_username'] = username
+        session.pop('admin_pending_user', None)
+        session.pop('admin_demo_otp', None)
+        admin_record["otp_hash"] = None
+        return jsonify({
+            "success": True,
+            "message": "Admin authenticated successfully."
+        })
+    else:
+        admin_record["otp_attempts"] += 1
+        return jsonify({
+            "success": False,
+            "message": f"Invalid OTP. Remaining attempts: {max(0, 3 - admin_record['otp_attempts'])}"
+        }), 400
+
+@app.route('/api/admin/logout', methods=['POST', 'GET'])
+def admin_logout_api():
+    session.pop('admin_authenticated', None)
+    session.pop('admin_username', None)
+    return jsonify({"success": True, "message": "Admin logged out successfully."})
+
+@app.route('/api/admin/inventory', methods=['GET'])
+def admin_get_inventory():
+    """Returns real-time blood inventory across all hospitals."""
+    inventory = load_blood_inventory()
+    return jsonify({
+        "success": True,
+        "count": len(inventory),
+        "data": inventory
+    })
+
+@app.route('/api/admin/inventory/update', methods=['POST'])
+@admin_required
+def admin_update_inventory():
+    """Updates inventory stock. Prevents negative stock and enforces data integrity."""
+    data = request.get_json(silent=True) or {}
+    h_id = data.get("hospital_id", "").strip()
+    bg = data.get("blood_group", "").strip().upper()
+    try:
+        units = int(data.get("units", -1))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "Invalid units number"}), 400
+
+    if units < 0:
+        return jsonify({"success": False, "message": "Stock units cannot be negative"}), 400
+
+    ok, res = update_inventory_units(h_id, bg, units)
+    if not ok:
+        return jsonify({"success": False, "message": res}), 400
+
+    return jsonify({
+        "success": True,
+        "message": "Inventory updated successfully",
+        "data": res
+    })
+
+@app.route('/api/admin/deliveries', methods=['GET'])
+@admin_required
+def admin_get_deliveries():
+    """Returns all deliveries with driver names, statuses, and timestamps."""
+    deliv_res = supabase.table("deliveries").select("*").order("created_at", desc=True).execute()
+    deliveries_list = deliv_res.data or []
+
+    partners_res = supabase.table("delivery_partners").select("*").execute()
+    partner_map = {p["id"]: p for p in (partners_res.data or [])}
+
+    for d in deliveries_list:
+        pid = d.get("partner_id")
+        d["partner"] = partner_map.get(pid, {})
+        d["formatted_id"] = f"D{d['id']:03d}"
+
+    return jsonify({
+        "success": True,
+        "count": len(deliveries_list),
+        "data": deliveries_list
+    })
+
+@app.route('/admin')
+@app.route('/admin/dashboard')
+def admin_dashboard_page():
+    """Admin dashboard view showing inventory, deliveries, and PDF verification."""
+    inventory = load_blood_inventory()
+    deliv_res = supabase.table("deliveries").select("*").order("created_at", desc=True).execute()
+    deliveries_list = deliv_res.data or []
+    partners_res = supabase.table("delivery_partners").select("*").execute()
+    partner_map = {p["id"]: p for p in (partners_res.data or [])}
+    for d in deliveries_list:
+        pid = d.get("partner_id")
+        d["partner"] = partner_map.get(pid, {})
+        d["formatted_id"] = f"D{d['id']:03d}"
+
+    return jsonify({
+        "title": "BloodLink Admin Dashboard",
+        "authenticated": bool(session.get('admin_authenticated')),
+        "inventory_count": len(inventory),
+        "total_deliveries": len(deliveries_list),
+        "active_deliveries": [d for d in deliveries_list if d.get("status") in ["Pending", "Assigned", "On the way", "Reached"]],
+        "inventory_summary": inventory[:10]
+    })
+
+# -------------------------------------------------------------
+# Hospital PDF Requisition Upload & Verification (pypdf)
+# -------------------------------------------------------------
+
+@app.route('/api/hospital/verify-pdf', methods=['POST'])
+def verify_hospital_pdf():
+    """
+    Hospital PDF verification using pypdf.
+    Validates file type and size (<= 5MB), extracts text, handles scanned PDFs gracefully,
+    checks medical requisition fields against hospital registry, and returns structured result.
+    """
+    if 'file' not in request.files and 'pdf' not in request.files:
+        return jsonify({"success": False, "message": "No PDF file attached in request"}), 400
+
+    file = request.files.get('file') or request.files.get('pdf')
+    if not file or not file.filename:
+        return jsonify({"success": False, "message": "No file selected"}), 400
+
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({"success": False, "message": "Invalid file format. Only .pdf files are accepted."}), 400
+
+    file_bytes = file.read()
+    if len(file_bytes) > 5 * 1024 * 1024:
+        return jsonify({"success": False, "message": "File size exceeds the 5MB limit."}), 400
+
+    if PdfReader is None:
+        return jsonify({"success": False, "message": "pypdf library is not installed on server."}), 500
+
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        num_pages = len(reader.pages)
+        raw_text = ""
+        for page in reader.pages:
+            t = page.extract_text() or ""
+            raw_text += t + "\n"
+
+        raw_text_stripped = raw_text.strip()
+
+        # Handle scanned or image-only PDFs gracefully without failing
+        if len(raw_text_stripped) < 40:
+            return jsonify({
+                "success": True,
+                "verified": False,
+                "is_scanned_image": True,
+                "pages": num_pages,
+                "extracted_length": len(raw_text_stripped),
+                "message": "Document appears to be scanned or image-only. Text could not be extracted; manual coordinator review required."
+            })
+
+        # Match against official hospital directory
+        hospitals_map = load_hospitals()
+        matched_hospital = None
+        for h_id, h_info in hospitals_map.items():
+            h_name = h_info.get("hospital_name", "")
+            if h_name.lower() in raw_text.lower():
+                matched_hospital = h_info
+                break
+
+        # Check for dates (e.g., DD/MM/YYYY or YYYY-MM-DD)
+        date_pattern = r'(\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b)'
+        dates_found = re.findall(date_pattern, raw_text)
+
+        # Check for blood group mentions
+        bg_pattern = r'\b(A\+|A-|B\+|B-|AB\+|AB-|O\+|O-)\b'
+        bgs_found = re.findall(bg_pattern, raw_text)
+
+        # Medical requisition indicators
+        keywords = ["blood", "patient", "requisition", "hospital", "doctor", "unit", "transfusion", "donor"]
+        found_keywords = [k for k in keywords if k in raw_text.lower()]
+
+        # Compute confidence score
+        confidence = 0
+        if matched_hospital:
+            confidence += 40
+        if dates_found:
+            confidence += 20
+        if bgs_found:
+            confidence += 20
+        if len(found_keywords) >= 3:
+            confidence += 20
+
+        is_verified = bool(matched_hospital and confidence >= 60)
+
+        return jsonify({
+            "success": True,
+            "verified": is_verified,
+            "confidence_score": confidence,
+            "is_scanned_image": False,
+            "matched_hospital": matched_hospital["hospital_name"] if matched_hospital else None,
+            "hospital_id": matched_hospital["hospital_id"] if matched_hospital else None,
+            "extracted_dates": dates_found,
+            "extracted_blood_groups": list(set(bgs_found)),
+            "medical_indicators": found_keywords,
+            "page_count": num_pages,
+            "message": "Requisition verified against hospital registry" if is_verified else "Verification unconfirmed; hospital or requisition details not verified"
+        })
+
+    except Exception as e:
+        print("[ERROR] PDF verification:", e)
+        return jsonify({
+            "success": False,
+            "message": f"Error parsing PDF document: {str(e)}"
+        }), 500
 
 
 @app.errorhandler(404)

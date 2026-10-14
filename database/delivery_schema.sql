@@ -1,7 +1,7 @@
 -- ============================================================================
--- BloodLink: Delivery & Real-Time Tracking Schema
--- Role: Person 1 (Database Developer)
--- Compatible with PostgreSQL 12+ / pgAdmin 4 / VS Code PostgreSQL Extension
+-- BloodLink: Delivery & Real-Time Tracking Schema (Enhanced)
+-- Role: Person 1 (Backend & Database Developer)
+-- Compatible with PostgreSQL 12+ / pgAdmin 4 / Supabase / VS Code PostgreSQL
 -- ============================================================================
 
 -- 1. Table: delivery_partners
@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS delivery_partners (
 
 -- 2. Table: deliveries
 -- Stores active and historical blood delivery requests.
+-- Supports distinct 'Reached' and 'Delivered' (via recipient OTP) statuses.
 CREATE TABLE IF NOT EXISTS deliveries (
     id SERIAL PRIMARY KEY,
     partner_id INT REFERENCES delivery_partners(id) ON DELETE SET NULL,
@@ -30,9 +31,16 @@ CREATE TABLE IF NOT EXISTS deliveries (
     destination VARCHAR(255) NOT NULL,
     destination_latitude NUMERIC(10, 6),
     destination_longitude NUMERIC(10, 6),
-    status VARCHAR(20) DEFAULT 'Assigned' NOT NULL
-        CHECK (status IN ('Assigned', 'On the way', 'Arrived', 'Completed', 'Cancelled')),
+    status VARCHAR(20) DEFAULT 'Pending' NOT NULL
+        CHECK (status IN ('Pending', 'Assigned', 'On the way', 'Reached', 'Delivered', 'Arrived', 'Completed', 'Cancelled')),
     eta_minutes INT DEFAULT 0,
+    recipient_otp_hash VARCHAR(255),
+    otp_expires_at TIMESTAMP WITH TIME ZONE,
+    otp_attempts INT DEFAULT 0,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    pickup_hospital_id VARCHAR(20),
+    pickup_latitude NUMERIC(10, 6),
+    pickup_longitude NUMERIC(10, 6),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -46,6 +54,31 @@ CREATE TABLE IF NOT EXISTS location_updates (
     latitude NUMERIC(10, 6) NOT NULL,
     longitude NUMERIC(10, 6) NOT NULL,
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Table: admin_users
+-- Stores administrative credentials and 2FA OTP state for admin verification.
+CREATE TABLE IF NOT EXISTS admin_users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    current_otp_hash VARCHAR(255),
+    otp_expires_at TIMESTAMP WITH TIME ZONE,
+    otp_attempts INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Table: blood_inventory
+-- Centralized inventory table for concurrency control and atomic unit updates.
+CREATE TABLE IF NOT EXISTS blood_inventory (
+    id SERIAL PRIMARY KEY,
+    hospital_id VARCHAR(20) NOT NULL,
+    blood_group VARCHAR(10) NOT NULL,
+    units INT NOT NULL CHECK (units >= 0),
+    status VARCHAR(20) DEFAULT 'Available',
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (hospital_id, blood_group)
 );
 
 -- ============================================================================
@@ -69,3 +102,6 @@ CREATE INDEX IF NOT EXISTS idx_location_updates_delivery_time
 
 CREATE INDEX IF NOT EXISTS idx_location_updates_partner_id 
     ON location_updates(partner_id);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_lookup
+    ON blood_inventory(hospital_id, blood_group);
