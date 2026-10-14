@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BloodLink - Admin Dashboard & Hospital Inventory</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #c9182b;
+            --primary-dark: #8b0000;
+            --dark: #0f172a;
+            --light-bg: #f8fafc;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #f1f5f9;
+            color: #1e293b;
+            margin: 0;
+            padding: 0;
+        }
+
+        .admin-nav {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            padding: 16px 28px;
+            color: #ffffff;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .admin-nav .brand-logo {
+            font-size: 22px;
+            font-weight: 800;
+            color: #ffffff;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stat-card {
+            background: #ffffff;
+            border-radius: 14px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .table-card {
+            background: #ffffff;
+            border-radius: 14px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+            overflow: hidden;
+            margin-bottom: 28px;
+        }
+
+        .table-card-header {
+            padding: 18px 24px;
+            background: #ffffff;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: gap;
+        }
+
+        .badge-low-stock {
+            background: #fee2e2;
+            color: #991b1b;
+            font-weight: 700;
+            padding: 5px 10px;
+            border-radius: 20px;
+            border: 1px solid #fecaca;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .badge-available {
+            background: #dcfce7;
+            color: #166534;
+            font-weight: 700;
+            padding: 5px 10px;
+            border-radius: 20px;
+            border: 1px solid #bbf7d0;
+        }
+
+        .badge-critical {
+            background: #fef2f2;
+            color: #b91c1c;
+            font-weight: 800;
+            padding: 5px 10px;
+            border-radius: 20px;
+            border: 1px solid #f87171;
+            animation: pulse-danger 1.5s infinite;
+        }
+
+        @keyframes pulse-danger {
+            0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+            70% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+        }
+
+        .pdf-dropzone {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .pdf-dropzone:hover, .pdf-dropzone.dragover {
+            border-color: #c9182b;
+            background: #fef2f2;
+        }
+
+        .login-overlay {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(6px);
+            position: fixed;
+            inset: 0;
+            z-index: 1050;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-box {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Admin Navigation Header -->
+    <header class="admin-nav d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <a href="/" class="brand-logo">
+            <i class="fa fa-heartbeat text-danger"></i> BloodLink Admin Portal
+        </a>
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-light text-dark px-3 py-2" id="adminUserBadge">
+                <i class="fa fa-user-shield text-danger me-1"></i> <span id="adminUsernameDisplay">Coordinator</span>
+            </span>
+            <button id="logoutBtn" class="btn btn-sm btn-outline-danger text-white border-light" style="display: none;">
+                <i class="fa fa-sign-out-alt me-1"></i> Logout
+            </button>
+            <a href="/" class="btn btn-sm btn-light">
+                <i class="fa fa-external-link-alt me-1"></i> Main App
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="container-fluid py-4 px-lg-5" id="adminMainDashboard" style="display: none;">
+        <!-- Overview Stats Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Total Inventory Units</div>
+                        <h3 class="fw-bold mb-0 mt-1" id="statTotalUnits">--</h3>
+                    </div>
+                    <div class="stat-icon bg-danger-subtle text-danger">
+                        <i class="fa fa-tint"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Low Stock Alerts</div>
+                        <h3 class="fw-bold mb-0 mt-1 text-danger" id="statLowStock">--</h3>
+                    </div>
+                    <div class="stat-icon bg-warning-subtle text-warning">
+                        <i class="fa fa-exclamation-triangle"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Active Deliveries</div>
+                        <h3 class="fw-bold mb-0 mt-1 text-primary" id="statActiveDeliveries">--</h3>
+                    </div>
+                    <div class="stat-icon bg-primary-subtle text-primary">
+                        <i class="fa fa-motorcycle"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Hospital Nodes</div>
+                        <h3 class="fw-bold mb-0 mt-1" id="statHospitals">--</h3>
+                    </div>
+                    <div class="stat-icon bg-success-subtle text-success">
+                        <i class="fa fa-hospital"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Left Column: Blood Inventory Table -->
+            <div class="col-lg-8">
+                <div class="table-card">
+                    <div class="table-card-header">
+                        <div>
+                            <h5 class="fw-bold mb-0 text-dark">
+                                <i class="fa fa-layer-group text-danger me-2"></i>Hospital Blood Group Inventory
+                            </h5>
+                            <small class="text-muted">Live stock counts with automatic low-stock triggers (< 3 units)</small>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="text" id="inventorySearch" class="form-control form-control-sm" placeholder="Search Hospital or Group..." style="max-width: 200px;">
+                            <button id="refreshInventoryBtn" class="btn btn-sm btn-outline-secondary">
+                                <i class="fa fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0" id="inventoryTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Hospital</th>
+                                    <th>Blood Group</th>
+                                    <th>Units In Stock</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryTableBody">
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">Loading inventory items...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Active Deliveries -->
+            <div class="col-lg-4">
+                <!-- Active Deliveries Snippet -->
+                <div class="table-card">
+                    <div class="table-card-header">
+                        <h6 class="fw-bold mb-0">
+                            <i class="fa fa-satellite-dish text-primary me-2"></i>Active Deliveries
+                        </h6>
+                    </div>
+                    <div class="p-3" id="activeDeliveriesList">
+                        <div class="text-muted text-center small py-3">Loading active deliveries...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Stock Update -->
+    <div class="modal fade" id="stockUpdateModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold">Update Blood Stock</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editHospitalId">
+                    <input type="hidden" id="editBloodGroup">
+                    <p class="mb-2">Hospital ID: <strong id="modalHospitalId">--</strong></p>
+                    <p class="mb-3">Blood Group: <span class="badge bg-danger" id="modalBloodGroup">--</span></p>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">New Available Units</label>
+                        <input type="number" id="editUnitsInput" min="0" max="500" class="form-control" required>
+                        <small class="text-muted">Negative units are strictly prevented by backend validation.</small>
+                    </div>
+                    <div id="updateStockMsg" class="small fw-bold"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="saveStockBtn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Authentication Modal (Direct Admin Password) -->
+    <div class="login-overlay" id="adminLoginOverlay" style="display: {{ 'none' if authenticated else 'flex' }};">
+        <div class="login-box">
+            <div class="text-center mb-4">
+                <div style="width: 56px; height: 56px; background: #fee2e2; color: #b91c1c; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 26px; margin-bottom: 12px;">
+                    <i class="fa fa-user-shield"></i>
+                </div>
+                <h4 class="fw-bold mb-1">Admin Portal Access</h4>
+                <p class="text-muted small">Enter admin credentials to manage inventory and hospital dispatches</p>
+            </div>
+
+            <!-- Admin Password Form -->
+            <form id="adminCredentialsForm">
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Admin Username</label>
+                    <input type="text" id="adminUser" class="form-control" placeholder="admin" required value="admin">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Admin Password</label>
+                    <input type="password" id="adminPass" class="form-control" placeholder="Enter password" required value="admin123">
+                </div>
+                <div id="credError" class="text-danger small mb-3 fw-bold"></div>
+                <button type="submit" class="btn btn-danger w-100 fw-bold py-2">
+                    <i class="fa fa-lock-open me-1"></i> Sign In to Admin Dashboard
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="js/bootstrap.min.js"></script>
+    <script>
+        let inventoryData = [];
+        let isAuthenticated = {{ 'true' if authenticated else 'false' }};
+
+        document.addEventListener("DOMContentLoaded", () => {
+            if (!isAuthenticated) {
+                document.getElementById("adminLoginOverlay").style.display = "flex";
+                document.getElementById("adminMainDashboard").style.display = "none";
+            } else {
+                document.getElementById("adminLoginOverlay").style.display = "none";
+                document.getElementById("adminMainDashboard").style.display = "block";
+                document.getElementById("logoutBtn").style.display = "inline-block";
+                loadDashboardData();
+            }
+
+            setupAuthListeners();
+            setupInventoryListeners();
+        });
+
+        // 1. Authentication Handlers (Direct Admin Password)
+        function setupAuthListeners() {
+            const credForm = document.getElementById("adminCredentialsForm");
+
+            credForm.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                const u = document.getElementById("adminUser").value.trim();
+                const p = document.getElementById("adminPass").value.trim();
+                const err = document.getElementById("credError");
+                err.textContent = "";
+
+                try {
+                    const res = await fetch("/api/admin/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ username: u, password: p })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        isAuthenticated = true;
+                        document.getElementById("adminLoginOverlay").style.display = "none";
+                        document.getElementById("adminMainDashboard").style.display = "block";
+                        document.getElementById("logoutBtn").style.display = "inline-block";
+                        loadDashboardData();
+                    } else {
+                        err.textContent = data.message || "Invalid credentials";
+                    }
+                } catch (e) {
+                    err.textContent = "Error connecting to server";
+                }
+            });
+
+            document.getElementById("logoutBtn").addEventListener("click", async () => {
+                await fetch("/api/admin/logout");
+                window.location.reload();
+            });
+        }
+
+        // 2. Load Dashboard & Inventory
+        async function loadDashboardData() {
+            try {
+                // Fetch inventory
+                const invRes = await fetch("/api/admin/inventory");
+                const invJson = await invRes.json();
+                if (invJson.success) {
+                    inventoryData = invJson.data || [];
+                    renderInventoryTable(inventoryData);
+                    computeStats(inventoryData);
+                }
+
+                // Fetch active deliveries
+                const delivRes = await fetch("/api/admin/deliveries");
+                const delivJson = await delivRes.json();
+                if (delivJson.success) {
+                    renderActiveDeliveries(delivJson.data || []);
+                }
+            } catch (err) {
+                console.error("Dashboard data load error:", err);
+            }
+        }
+
+        function computeStats(items) {
+            let totalUnits = 0;
+            let lowStockCount = 0;
+            const uniqueHospitals = new Set();
+
+            items.forEach(item => {
+                const units = parseInt(item.units) || 0;
+                totalUnits += units;
+                if (units <= 2) lowStockCount++;
+                if (item.hospital_id) uniqueHospitals.add(item.hospital_id);
+            });
+
+            document.getElementById("statTotalUnits").textContent = totalUnits;
+            document.getElementById("statLowStock").textContent = lowStockCount;
+            document.getElementById("statHospitals").textContent = uniqueHospitals.size;
+        }
+
+        function renderInventoryTable(items) {
+            const tbody = document.getElementById("inventoryTableBody");
+            tbody.innerHTML = "";
+
+            if (!items || items.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No inventory records found.</td></tr>`;
+                return;
+            }
+
+            items.forEach(item => {
+                const tr = document.createElement("tr");
+                const units = parseInt(item.units) || 0;
+
+                let statusBadge = '';
+                if (units === 0) {
+                    statusBadge = `<span class="badge-critical"><i class="fa fa-times-circle"></i> Out of Stock</span>`;
+                } else if (units <= 2) {
+                    statusBadge = `<span class="badge-low-stock"><i class="fa fa-exclamation-circle"></i> Low Stock (${units})</span>`;
+                } else {
+                    statusBadge = `<span class="badge-available"><i class="fa fa-check-circle"></i> Available (${units})</span>`;
+                }
+
+                tr.innerHTML = `
+                    <td>
+                        <strong class="text-dark">${item.hospital_name || item.hospital_id}</strong>
+                        <div class="text-muted small">ID: ${item.hospital_id}</div>
+                    </td>
+                    <td><span class="badge bg-danger fs-6">${item.blood_group}</span></td>
+                    <td><strong>${units}</strong> Units</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-danger" onclick="openStockModal('${item.hospital_id}', '${item.blood_group}', ${units})">
+                            <i class="fa fa-edit me-1"></i> Edit Stock
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderActiveDeliveries(deliveries) {
+            const container = document.getElementById("activeDeliveriesList");
+            const active = deliveries.filter(d => ["Assigned", "On the way", "Reached"].includes(d.status));
+            document.getElementById("statActiveDeliveries").textContent = active.length;
+
+            if (active.length === 0) {
+                container.innerHTML = `<div class="text-muted text-center small py-3">No active deliveries right now.</div>`;
+                return;
+            }
+
+            container.innerHTML = active.slice(0, 5).map(d => `
+                <div class="p-2 mb-2 rounded border bg-light" style="font-size: 13px;">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <strong>#${d.formatted_id} (${d.blood_group})</strong>
+                        <span class="badge bg-primary">${d.status}</span>
+                    </div>
+                    <div class="text-muted small mt-1">Driver: ${d.partner ? d.partner.partner_name : 'Assigned'}</div>
+                    <div class="text-muted small">To: ${d.customer_name} (${d.destination})</div>
+                    <a href="/live-tracking?delivery_id=${d.formatted_id}" class="btn btn-sm btn-link p-0 mt-1 text-danger">Track Live →</a>
+                </div>
+            `).join("");
+        }
+
+        // 3. Stock Update Modal Handlers
+        window.openStockModal = function(hId, bg, currentUnits) {
+            document.getElementById("editHospitalId").value = hId;
+            document.getElementById("editBloodGroup").value = bg;
+            document.getElementById("modalHospitalId").textContent = hId;
+            document.getElementById("modalBloodGroup").textContent = bg;
+            document.getElementById("editUnitsInput").value = currentUnits;
+            document.getElementById("updateStockMsg").textContent = "";
+
+            const modal = new bootstrap.Modal(document.getElementById("stockUpdateModal"));
+            modal.show();
+        };
+
+        function setupInventoryListeners() {
+            document.getElementById("saveStockBtn").addEventListener("click", async () => {
+                const hId = document.getElementById("editHospitalId").value;
+                const bg = document.getElementById("editBloodGroup").value;
+                const units = parseInt(document.getElementById("editUnitsInput").value);
+                const msg = document.getElementById("updateStockMsg");
+
+                if (isNaN(units) || units < 0) {
+                    msg.style.color = "#dc2626";
+                    msg.textContent = "Units cannot be negative";
+                    return;
+                }
+
+                try {
+                    const res = await fetch("/api/admin/inventory/update", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ hospital_id: hId, blood_group: bg, units: units })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        msg.style.color = "#16a34a";
+                        msg.textContent = "Stock updated successfully!";
+                        setTimeout(() => {
+                            bootstrap.Modal.getInstance(document.getElementById("stockUpdateModal")).hide();
+                            loadDashboardData();
+                        }, 600);
+                    } else {
+                        msg.style.color = "#dc2626";
+                        msg.textContent = data.message || "Failed to update stock";
+                    }
+                } catch (e) {
+                    msg.style.color = "#dc2626";
+                    msg.textContent = "Error saving stock update";
+                }
+            });
+
+            document.getElementById("inventorySearch").addEventListener("input", (e) => {
+                const q = e.target.value.toLowerCase();
+                const filtered = inventoryData.filter(i => 
+                    (i.hospital_name && i.hospital_name.toLowerCase().includes(q)) ||
+                    (i.hospital_id && i.hospital_id.toLowerCase().includes(q)) ||
+                    (i.blood_group && i.blood_group.toLowerCase().includes(q))
+                );
+                renderInventoryTable(filtered);
+            });
+
+            document.getElementById("refreshInventoryBtn").addEventListener("click", () => {
+                loadDashboardData();
+            });
+        }
+    </script>
+</body>
+</html>

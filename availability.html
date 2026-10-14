@@ -14,6 +14,8 @@
     <link href="css/magnific-popup.css" rel="stylesheet">
     <link href="css/custom.css" rel="stylesheet">
     <link href="css/responsive.css" rel="stylesheet">
+    <link href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css" rel="stylesheet">
+    <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
     <style>
         .hospital-card {
             background: #ffffff;
@@ -94,7 +96,7 @@
                             <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
                             <li class="nav-item"><a class="nav-link" href="/about">About Us</a></li>
                             <li class="nav-item"><a class="nav-link active" href="/find-blood">Find Blood</a></li>
-                            <li class="nav-item"><a class="nav-link" href="javascript:;">Donate Blood</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/admin"><i class="fa fa-user-shield me-1"></i> Admin</a></li>
                         </ul>
                     </div>
                     <div class="navbar-toggle"></div>                        
@@ -135,6 +137,40 @@
                                 <div class="fw-bold" style="color: #0f172a;">{{ patient_name }} ({{ contact_number }})</div>
                             </div>
                             {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map Area Filtering & MapLibre GL JS Section -->
+            <div class="row justify-content-center mb-4">
+                <div class="col-lg-10">
+                    <div class="card shadow-sm border-0" style="border-radius: 14px; overflow: hidden;">
+                        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div>
+                                <h5 class="mb-0 fw-bold" style="color: #64050d;">
+                                    <i class="fa fa-map-marked-alt text-danger me-2"></i>Interactive Panvel Area & Streets Map
+                                </h5>
+                                <small class="text-muted">Select an area to view local streets, hospital distribution, and route lines</small>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <label for="areaFilterSelect" class="form-label mb-0 fw-bold text-nowrap" style="font-size: 14px;">Select Area:</label>
+                                <select id="areaFilterSelect" class="form-select form-select-sm" style="min-width: 180px; font-weight: 600;">
+                                    <option value="New Panvel" selected>New Panvel</option>
+                                    <option value="Old Panvel">Old Panvel</option>
+                                    <option value="Khanda Colony">Khanda Colony</option>
+                                    <option value="Kamothe">Kamothe</option>
+                                    <option value="Kharghar">Kharghar</option>
+                                    <option value="Kalamboli">Kalamboli</option>
+                                    <option value="Karanjade">Karanjade</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="card-body p-0 position-relative">
+                            <div id="availability-map" style="width: 100%; height: 380px;"></div>
+                            <div id="area-streets-badge" class="position-absolute bottom-0 start-0 m-3 bg-white p-2 px-3 rounded shadow-sm border" style="z-index: 5; font-size: 13px;">
+                                <i class="fa fa-info-circle text-primary me-1"></i> <span id="street-count-text">Loading streets...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -201,9 +237,9 @@
                                         </div>
                                     </div>
 
-                                    <!-- Action: Request Blood Button -->
+                                    <!-- Action: Verify Request Button -->
                                     <div class="pt-3 border-top mt-2">
-                                        <form action="/request-blood" method="POST">
+                                        <form action="/verify-request" method="POST">
                                             <input type="hidden" name="hospital_id" value="{{ hospital.hospital_id }}">
                                             <input type="hidden" name="blood_group" value="{{ blood_group }}">
                                             <input type="hidden" name="name" value="{{ patient_name }}">
@@ -214,7 +250,7 @@
                                             <input type="hidden" name="location" value="{{ location }}">
                                             <input type="hidden" name="distance" value="{{ hospital.distance }}">
                                             <button type="submit" class="btn submit_blood w-100 text-center py-2" style="font-size: 15px; font-weight: 600;">
-                                                Request Blood <i class="fa fa-arrow-right ms-1"></i>
+                                                <i class="fa fa-file-medical me-1"></i> Verify Request <i class="fa fa-arrow-right ms-1"></i>
                                             </button>
                                         </form>
                                     </div>
@@ -255,5 +291,186 @@
     <script src="js/ScrollTrigger.min.js"></script>
     <script src="js/wow.js"></script>
     <script src="js/function.js"></script>
+
+    <!-- MapLibre GL JS Area Streets & Route Engine -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const mapContainer = document.getElementById("availability-map");
+            if (!mapContainer) return;
+
+            // Free CARTO Positron vector tiles style
+            const availMap = new maplibregl.Map({
+                container: "availability-map",
+                style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+                center: [73.1200, 19.0005],
+                zoom: 13
+            });
+
+            availMap.addControl(new maplibregl.NavigationControl(), "top-right");
+
+            let activeMarkers = [];
+
+            availMap.on("load", function () {
+                availMap.addSource("area-route", {
+                    type: "geojson",
+                    data: { type: "FeatureCollection", features: [] }
+                });
+
+                availMap.addLayer({
+                    id: "area-route-line",
+                    type: "line",
+                    source: "area-route",
+                    layout: { "line-join": "round", "line-cap": "round" },
+                    paint: {
+                        "line-color": "#c9182b",
+                        "line-width": 4,
+                        "line-opacity": 0.85
+                    }
+                });
+
+                // Load initial selected area
+                const areaSelect = document.getElementById("areaFilterSelect");
+                const initialArea = areaSelect ? areaSelect.value : "New Panvel";
+                loadAreaStreetsAndPlot(initialArea);
+            });
+
+            const areaSelect = document.getElementById("areaFilterSelect");
+            if (areaSelect) {
+                areaSelect.addEventListener("change", function () {
+                    loadAreaStreetsAndPlot(this.value);
+                });
+            }
+
+            async function loadAreaStreetsAndPlot(areaName) {
+                const badge = document.getElementById("street-count-text");
+                if (badge) badge.textContent = `Fetching streets & hospitals for ${areaName}...`;
+
+                try {
+                    const res = await fetch(`/get-area-streets?area=${encodeURIComponent(areaName)}`);
+                    if (!res.ok) throw new Error("Network error fetching streets");
+                    const data = await res.json();
+
+                    if (!data.success) return;
+
+                    // Clear old markers
+                    activeMarkers.forEach(m => m.remove());
+                    activeMarkers = [];
+
+                    const bounds = new maplibregl.LngLatBounds();
+
+                    // Center map on area
+                    if (data.center) {
+                        const c = [data.center.longitude, data.center.latitude];
+                        availMap.flyTo({ center: c, zoom: 13.5, speed: 1.2 });
+                        bounds.extend(c);
+                    }
+
+                    // Plot street / landmark markers
+                    if (data.streets && data.streets.length > 0) {
+                        data.streets.forEach(street => {
+                            const el = document.createElement("div");
+                            el.style.width = "28px";
+                            el.style.height = "28px";
+                            el.style.borderRadius = "50%";
+                            el.style.background = "#2563eb";
+                            el.style.color = "#ffffff";
+                            el.style.display = "flex";
+                            el.style.alignItems = "center";
+                            el.style.justifyContent = "center";
+                            el.style.fontSize = "13px";
+                            el.style.boxShadow = "0 2px 8px rgba(37,99,235,0.4)";
+                            el.style.cursor = "pointer";
+                            el.innerHTML = '<i class="fa fa-road"></i>';
+
+                            const popup = new maplibregl.Popup({ offset: 15 }).setHTML(`
+                                <div style="font-family: 'Outfit', sans-serif;">
+                                    <strong style="color: #1e3a8a;">${street.name}</strong><br>
+                                    <small class="text-muted">${street.landmark}</small>
+                                </div>
+                            `);
+
+                            const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
+                                .setLngLat([street.longitude, street.latitude])
+                                .setPopup(popup)
+                                .addTo(availMap);
+
+                            activeMarkers.push(marker);
+                            bounds.extend([street.longitude, street.latitude]);
+                        });
+                    }
+
+                    // Plot nearby hospital markers
+                    if (data.hospitals && data.hospitals.length > 0) {
+                        data.hospitals.forEach(hosp => {
+                            const el = document.createElement("div");
+                            el.style.width = "34px";
+                            el.style.height = "34px";
+                            el.style.borderRadius = "50%";
+                            el.style.background = "#dc2626";
+                            el.style.color = "#ffffff";
+                            el.style.display = "flex";
+                            el.style.alignItems = "center";
+                            el.style.justifyContent = "center";
+                            el.style.fontSize = "16px";
+                            el.style.boxShadow = "0 3px 10px rgba(220,38,38,0.5)";
+                            el.style.border = "2px solid #ffffff";
+                            el.style.cursor = "pointer";
+                            el.innerHTML = '<i class="fa fa-plus"></i>';
+
+                            const popup = new maplibregl.Popup({ offset: 18 }).setHTML(`
+                                <div style="font-family: 'Outfit', sans-serif; min-width: 170px;">
+                                    <strong style="color: #991b1b; font-size: 14px;">${hosp.hospital_name}</strong><br>
+                                    <small class="text-muted"><i class="fa fa-map-marker-alt"></i> ${hosp.address}</small><br>
+                                    <span class="badge bg-danger mt-1">${hosp.distance_km} km away</span>
+                                </div>
+                            `);
+
+                            const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
+                                .setLngLat([hosp.longitude, hosp.latitude])
+                                .setPopup(popup)
+                                .addTo(availMap);
+
+                            activeMarkers.push(marker);
+                            bounds.extend([hosp.longitude, hosp.latitude]);
+                        });
+
+                        // Draw OSRM route line from first street to closest hospital
+                        if (data.streets && data.streets.length > 0) {
+                            const startPt = [data.streets[0].longitude, data.streets[0].latitude];
+                            const endPt = [data.hospitals[0].longitude, data.hospitals[0].latitude];
+                            drawOSRMRouteLine(startPt, endPt);
+                        }
+                    }
+
+                    if (badge) {
+                        badge.innerHTML = `<strong>${data.area}</strong>: ${data.streets ? data.streets.length : 0} streets, ${data.hospitals ? data.hospitals.length : 0} nearby hospitals plotted`;
+                    }
+
+                } catch (err) {
+                    console.error("Map area error:", err);
+                    if (badge) badge.textContent = "Error updating map for area";
+                }
+            }
+
+            async function drawOSRMRouteLine(start, end) {
+                const url = `https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${end[0]},${end[1]}?overview=full&geometries=geojson`;
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) return;
+                    const json = await res.json();
+                    if (json.code === "Ok" && json.routes && json.routes.length > 0) {
+                        if (availMap.getSource("area-route")) {
+                            availMap.getSource("area-route").setData({
+                                type: "Feature",
+                                geometry: json.routes[0].geometry
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn("OSRM route fallback:", e);
+                }
+            }
+        });
+    </script>
 </body>
 </html>

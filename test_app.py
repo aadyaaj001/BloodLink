@@ -280,26 +280,17 @@ class TestBloodLinkFlow(unittest.TestCase):
         )
         self.assertEqual(bad_login.status_code, 401)
 
-        # 2. Valid login -> triggers 2FA OTP
+        # 2. Valid login -> direct authentication with password
         good_login = self.client.post(
             '/api/admin/login',
             data=json.dumps({"username": "admin", "password": "admin123"}),
             content_type='application/json'
         )
         self.assertEqual(good_login.status_code, 200)
-        self.assertTrue(good_login.get_json().get("otp_required"))
-
-        # 3. Verify admin OTP
-        with self.client.session_transaction() as sess:
-            demo_otp = sess.get('admin_demo_otp')
-
-        verify_res = self.client.post(
-            '/api/admin/verify-otp',
-            data=json.dumps({"username": "admin", "otp": demo_otp}),
-            content_type='application/json'
-        )
-        self.assertEqual(verify_res.status_code, 200)
-        print("[PASS] Admin 2FA: Credentials & OTP verified, session authenticated.")
+        login_json = good_login.get_json()
+        self.assertTrue(login_json.get("success"))
+        self.assertTrue(login_json.get("authenticated"))
+        print("[PASS] Admin Authentication: Password verified, session authenticated directly.")
 
         # 4. Admin inventory update
         update_inv_res = self.client.post(
@@ -361,6 +352,50 @@ class TestBloodLinkFlow(unittest.TestCase):
         self.assertFalse(blank_data.get("verified"))
         self.assertTrue(blank_data.get("is_scanned_image"))
         print("[PASS] Scanned PDF Handling: Graceful status returned for image-only document.")
+
+    def test_new_features_integration(self):
+        """Tests newly added Person 1 & 2 endpoints."""
+        # 1. /get-area-streets
+        res_areas = self.client.get('/get-area-streets')
+        self.assertEqual(res_areas.status_code, 200)
+        areas_data = res_areas.get_json()
+        self.assertTrue(areas_data.get("success"))
+        self.assertIn("New Panvel", areas_data.get("areas", []))
+
+        res_panvel = self.client.get('/get-area-streets?area=New Panvel')
+        self.assertEqual(res_panvel.status_code, 200)
+        panvel_data = res_panvel.get_json()
+        self.assertTrue(panvel_data.get("success"))
+        self.assertGreater(len(panvel_data.get("streets", [])), 0)
+        print("[PASS] Area streets endpoint returns streets & coordinates for New Panvel.")
+
+        # 2. /api/tracking/D001
+        res_track = self.client.get('/api/tracking/D001')
+        self.assertEqual(res_track.status_code, 200)
+        track_data = res_track.get_json()
+        self.assertTrue(track_data.get("success"))
+        self.assertEqual(track_data["data"]["delivery_id"], "D001")
+        print("[PASS] /api/tracking/D001 returns live tracking details.")
+
+        # 3. /api/upload-pdf alias
+        valid_pdf_bytes = create_sample_text_pdf(
+            "Lifeline Hospital Emergency Requisition B+ Units: 2 Date: 12/10/2026 Doctor Transfusion Requisition"
+        )
+        res_upload = self.client.post(
+            '/api/upload-pdf',
+            data={'file': (io.BytesIO(valid_pdf_bytes), "requisition.pdf")},
+            content_type='multipart/form-data'
+        )
+        self.assertEqual(res_upload.status_code, 200)
+        upload_data = res_upload.get_json()
+        self.assertTrue(upload_data.get("success"))
+        print("[PASS] /api/upload-pdf alias processes hospital PDF successfully.")
+
+        # 4. Admin page GET returns HTML
+        res_admin = self.client.get('/admin', headers={"Accept": "text/html"})
+        self.assertEqual(res_admin.status_code, 200)
+        self.assertIn(b"BloodLink Admin Portal", res_admin.data)
+        print("[PASS] Admin dashboard renders administrative web portal.")
 
 
 if __name__ == '__main__':

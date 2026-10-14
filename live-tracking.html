@@ -1,402 +1,866 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BloodLink - Live Delivery Tracking</title>
-
-    <!-- MapLibre -->
-    <link href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css"
-          rel="stylesheet">
-
+    <title>BloodLink - Live Blood Delivery Tracking</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/all.min.css" rel="stylesheet">
+    <link href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css" rel="stylesheet">
     <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
 
     <style>
+        :root {
+            --primary: #c9182b;
+            --primary-dark: #8b0000;
+            --secondary: #0f172a;
+            --success: #16a34a;
+            --warning: #f59e0b;
+            --bg-light: #f8fafc;
+        }
+
+        * {
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
         body {
             margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
+            padding: 0;
+            background-color: #f1f5f9;
+            color: #1e293b;
+            min-height: 100vh;
         }
 
-        .header {
-            background: #8b0000;
-            color: white;
-            text-align: center;
-            padding: 18px;
+        .tracking-header {
+            background: linear-gradient(135deg, #8b0000 0%, #c9182b 100%);
+            color: #ffffff;
+            padding: 16px 24px;
+            box-shadow: 0 4px 20px rgba(139, 0, 0, 0.25);
+            position: relative;
+            z-index: 20;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: auto;
+        .tracking-header .brand-title {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            text-decoration: none;
+        }
+
+        .live-pill {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(8px);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #22c55e;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        .tracking-layout {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            min-height: calc(100vh - 72px);
+            position: relative;
+        }
+
+        @media (max-width: 991px) {
+            .tracking-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .sidebar-panel {
+            background: #ffffff;
+            padding: 24px;
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.06);
+            z-index: 10;
+            overflow-y: auto;
+            max-height: calc(100vh - 72px);
+        }
+
+        .delivery-eta-card {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #ffffff;
+            border-radius: 16px;
             padding: 20px;
-        }
-
-        .tracking-box {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 18px;
-            box-shadow: 0 2px 10px #00000010;
-        }
-
-        #map {
-            height: 500px;
-            width: 100%;
-            border-radius: 12px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
+            position: relative;
             overflow: hidden;
         }
 
-        .driver-icon, .destination-icon {
-            font-size: 30px;
-            background: white;
-            border: 2px solid #8b0000;
+        .delivery-eta-card::after {
+            content: "";
+            position: absolute;
+            top: -30%;
+            right: -20%;
+            width: 140px;
+            height: 140px;
+            background: radial-gradient(circle, rgba(201, 24, 43, 0.35) 0%, transparent 70%);
             border-radius: 50%;
+        }
+
+        .eta-title {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .eta-time {
+            font-size: 32px;
+            font-weight: 800;
+            color: #f8fafc;
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .eta-time span {
+            font-size: 16px;
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+
+        /* Status Timeline (Swiggy/Zomato style) */
+        .status-timeline {
+            margin: 20px 0;
+            position: relative;
+            padding-left: 28px;
+        }
+
+        .status-timeline::before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 6px;
+            bottom: 6px;
+            width: 3px;
+            background: #e2e8f0;
+            border-radius: 2px;
+        }
+
+        .timeline-step {
+            position: relative;
+            margin-bottom: 18px;
+        }
+
+        .timeline-step:last-child {
+            margin-bottom: 0;
+        }
+
+        .step-marker {
+            position: absolute;
+            left: -28px;
+            top: 2px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: #64748b;
+            transition: all 0.3s ease;
+        }
+
+        .timeline-step.completed .step-marker {
+            background: #16a34a;
+            color: #ffffff;
+            box-shadow: 0 0 10px rgba(22, 163, 74, 0.4);
+        }
+
+        .timeline-step.active .step-marker {
+            background: #c9182b;
+            color: #ffffff;
+            box-shadow: 0 0 12px rgba(201, 24, 43, 0.5);
+            animation: pulse-ring 2s infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(201, 24, 43, 0.6); }
+            70% { box-shadow: 0 0 0 8px rgba(201, 24, 43, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(201, 24, 43, 0); }
+        }
+
+        .step-label {
+            font-size: 14.5px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .timeline-step.active .step-label {
+            color: #c9182b;
+            font-weight: 700;
+        }
+
+        .step-subtext {
+            font-size: 12.5px;
+            color: #64748b;
+        }
+
+        /* Rider Info Card */
+        .rider-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .rider-avatar {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: #fee2e2;
+            color: #b91c1c;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: 700;
+            border: 2px solid #fecaca;
+        }
+
+        .rider-details {
+            flex: 1;
+        }
+
+        .rider-name {
+            font-weight: 700;
+            font-size: 16px;
+            color: #0f172a;
+            margin-bottom: 2px;
+        }
+
+        .rider-vehicle {
+            font-size: 13px;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .call-btn {
+            background: #10b981;
+            color: white;
+            border: none;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            font-size: 16px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            transition: transform 0.2s;
+        }
+
+        .call-btn:hover {
+            transform: scale(1.08);
+            color: white;
+        }
+
+        /* Order Details Summary */
+        .meta-group {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 20px;
+        }
+
+        .meta-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13.5px;
+            border-bottom: 1px dashed #e2e8f0;
+        }
+
+        .meta-row:last-child {
+            border-bottom: none;
+        }
+
+        .meta-row span:first-child {
+            color: #64748b;
+        }
+
+        .meta-row span:last-child {
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        /* Map Container */
+        #map-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Custom Marker Elements */
+        .custom-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            transition: transform 0.3s ease;
+        }
+
+        .custom-marker:hover {
+            transform: scale(1.15);
+        }
+
+        .rider-pin {
+            width: 48px;
+            height: 48px;
+            background: #ffffff;
+            border: 3px solid #c9182b;
+            font-size: 24px;
+            position: relative;
+        }
+
+        .rider-pin::after {
+            content: "";
+            position: absolute;
+            bottom: -6px;
+            width: 12px;
+            height: 12px;
+            background: #c9182b;
+            transform: rotate(45deg);
+            z-index: -1;
+        }
+
+        .hospital-pin {
             width: 44px;
             height: 44px;
+            background: #ffffff;
+            border: 3px solid #16a34a;
+            font-size: 22px;
+        }
+
+        .recipient-pin {
+            width: 44px;
+            height: 44px;
+            background: #ffffff;
+            border: 3px solid #2563eb;
+            font-size: 22px;
+        }
+
+        /* Recipient OTP Verification Card */
+        .otp-verify-card {
+            background: #f0fdf4;
+            border: 2px dashed #86efac;
+            border-radius: 14px;
+            padding: 16px;
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        .otp-inputs {
             display: flex;
             justify-content: center;
-            align-items: center;
-            box-shadow: 0 2px 8px #00000035;
+            gap: 8px;
+            margin: 12px 0;
         }
 
-        .destination-icon {
-            border-color: #176b3a;
+        .otp-input-field {
+            width: 42px;
+            height: 46px;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 700;
+            border: 2px solid #cbd5e1;
+            border-radius: 8px;
+            background: #ffffff;
         }
 
-        .live {
-            color: #16803c;
-            font-weight: bold;
+        .otp-input-field:focus {
+            border-color: #16a34a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2);
         }
 
-        @media (max-width: 600px) {
-            .container { padding: 10px; }
-            #map { height: 400px; }
+        .btn-verify-otp {
+            background: #16a34a;
+            color: #ffffff;
+            border: none;
+            padding: 10px 24px;
+            font-weight: 700;
+            border-radius: 8px;
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-verify-otp:hover {
+            background: #15803d;
+            box-shadow: 0 4px 14px rgba(22, 163, 74, 0.3);
+        }
+
+        /* Delivered Success Banner */
+        .delivered-success-card {
+            background: #dcfce7;
+            border: 2px solid #86efac;
+            border-radius: 14px;
+            padding: 18px;
+            text-align: center;
+            color: #14532d;
+            display: none;
         }
     </style>
 </head>
-
 <body>
-    <div class="header">
-        <h1>BloodLink</h1>
-        <p>Live Blood Delivery Tracking</p>
-    </div>
 
-    <div class="container">
-        <div class="tracking-box">
-            <h2>Delivery Tracking</h2>
-
-            <p><b>Delivery ID:</b> <span id="delivery-id">Loading...</span></p>
-            <p><b>Status:</b> <span id="status">Connecting...</span></p>
-            <p><b>Recipient / Customer:</b> <span id="customer-name" style="font-weight: bold; color: #8b0000;">Loading...</span> (<span id="customer-phone">--</span>)</p>
-            <p><b>ETA:</b> <span id="eta">Calculating...</span></p>
-            <p><b>Driver:</b> <span id="driver">Loading...</span></p>
-            <p><b>Driver Phone:</b> <span id="phone">--</span></p>
-            <p><b>Latitude:</b> <span id="latitude">--</span></p>
-            <p><b>Longitude:</b> <span id="longitude">--</span></p>
-            <p><b>Last updated:</b> <span id="timestamp">--</span></p>
-            <p><b>Connection:</b> <span id="connection-status">Connecting...</span></p>
+    <!-- Header Navigation -->
+    <header class="tracking-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <a href="/" class="brand-title">
+            <i class="fa fa-heartbeat text-white"></i> BloodLink Live Tracking
+        </a>
+        <div class="d-flex align-items-center gap-3">
+            <span class="live-pill">
+                <span class="pulse-dot"></span> <span id="header-status-pill">Live Tracking</span>
+            </span>
+            <a href="/" class="btn btn-sm btn-outline-light" style="border-radius: 20px; font-weight: 600;">
+                <i class="fa fa-home me-1"></i> Home
+            </a>
         </div>
+    </header>
 
-        <div id="map"></div>
+    <!-- Main Live Tracking Layout -->
+    <div class="tracking-layout">
+        <!-- Sidebar Controls & Info -->
+        <aside class="sidebar-panel">
+            <!-- ETA Banner -->
+            <div class="delivery-eta-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="eta-title">Estimated Arrival</div>
+                        <div class="eta-time" id="eta-display">Calculating...</div>
+                    </div>
+                    <div style="font-size: 38px;">🏍️</div>
+                </div>
+                <div class="mt-2 text-white-50" style="font-size: 12.5px;">
+                    <i class="fa fa-satellite text-success me-1"></i>
+                    Delivery ID: <strong class="text-white" id="sidebar-delivery-id">D001</strong>
+                </div>
+            </div>
+
+            <!-- Delivery Partner Information -->
+            <div class="rider-card">
+                <div class="rider-avatar" id="driver-avatar">R</div>
+                <div class="rider-details">
+                    <div class="rider-name" id="driver-name">Assigning Partner...</div>
+                    <div class="rider-vehicle" id="driver-vehicle">
+                        <i class="fa fa-motorcycle text-danger"></i> Bajaj Pulsar
+                    </div>
+                    <div class="text-muted" style="font-size: 12px;" id="driver-location">Panvel Sector</div>
+                </div>
+                <a href="tel:+919876543210" id="driver-call-link" class="call-btn" title="Call Driver">
+                    <i class="fa fa-phone"></i>
+                </a>
+            </div>
+
+            <!-- Swiggy/Zomato Style Delivery Timeline -->
+            <h6 class="fw-bold mb-3" style="color: #0f172a; font-size: 14.5px;">
+                <i class="fa fa-route text-danger me-1"></i> Order & Delivery Timeline
+            </h6>
+            <div class="status-timeline">
+                <div class="timeline-step" id="step-assigned">
+                    <div class="step-marker"><i class="fa fa-check"></i></div>
+                    <div class="step-label">Delivery Partner Assigned</div>
+                    <div class="step-subtext" id="time-assigned">Hospital blood units packed</div>
+                </div>
+                <div class="timeline-step" id="step-ontheway">
+                    <div class="step-marker"><i class="fa fa-motorcycle"></i></div>
+                    <div class="step-label">On the way</div>
+                    <div class="step-subtext" id="time-ontheway">Rider moving towards destination</div>
+                </div>
+                <div class="timeline-step" id="step-reached">
+                    <div class="step-marker"><i class="fa fa-map-marker-alt"></i></div>
+                    <div class="step-label">Reached Destination</div>
+                    <div class="step-subtext" id="time-reached">Driver at your location</div>
+                </div>
+                <div class="timeline-step" id="step-delivered">
+                    <div class="step-marker"><i class="fa fa-shield-alt"></i></div>
+                    <div class="step-label">Delivered & Verified</div>
+                    <div class="step-subtext" id="time-delivered">Recipient OTP verified safely</div>
+                </div>
+            </div>
+
+            <!-- Recipient & Order Meta -->
+            <div class="meta-group mt-3">
+                <div class="meta-row">
+                    <span>Recipient Name</span>
+                    <span id="meta-recipient-name">Emergency Patient</span>
+                </div>
+                <div class="meta-row">
+                    <span>Recipient Phone</span>
+                    <span id="meta-recipient-phone">--</span>
+                </div>
+                <div class="meta-row">
+                    <span>Blood Group</span>
+                    <span class="badge bg-danger text-white" id="meta-blood-group">A+</span>
+                </div>
+                <div class="meta-row">
+                    <span>Pickup Hospital</span>
+                    <span id="meta-hospital-name">Lifeline Hospital</span>
+                </div>
+                <div class="meta-row">
+                    <span>Destination Area</span>
+                    <span id="meta-destination">New Panvel</span>
+                </div>
+                <div class="meta-row">
+                    <span>Last GPS Ping</span>
+                    <span id="meta-last-ping">Connecting...</span>
+                </div>
+            </div>
+
+            <!-- Delivered Celebration Banner -->
+            <div class="delivered-success-card" id="delivered-box">
+                <div style="font-size: 32px; color: #16a34a; margin-bottom: 8px;">🎉</div>
+                <h5 class="fw-bold mb-1">Blood Delivery Completed!</h5>
+                <p class="mb-0 text-muted" style="font-size: 13px;">
+                    Recipient OTP verified. Blood units have been safely handed over.
+                </p>
+                <div class="mt-2 text-dark font-monospace" style="font-size: 12px;" id="delivered-timestamp"></div>
+            </div>
+
+            <!-- Recipient OTP Verification Form -->
+            <div class="otp-verify-card" id="otp-section">
+                <h6 class="fw-bold text-success mb-1">
+                    <i class="fa fa-key me-1"></i> Recipient Delivery OTP
+                </h6>
+                <p class="text-muted mb-2" style="font-size: 12.5px;">
+                    Provide the 6-digit OTP to the driver to complete delivery verification.
+                </p>
+                <div class="d-flex justify-content-center gap-1 mb-2">
+                    <input type="text" maxlength="6" id="otp-code-input" class="form-control text-center font-monospace fw-bold" placeholder="Enter 6-digit OTP" style="max-width: 220px; font-size: 18px; letter-spacing: 4px;">
+                </div>
+                <button type="button" class="btn-verify-otp" id="submit-otp-btn">
+                    <i class="fa fa-check-circle me-1"></i> Verify & Confirm Delivery
+                </button>
+                <div id="otp-status-message" class="mt-2" style="font-size: 13px; font-weight: 600;"></div>
+            </div>
+        </aside>
+
+        <!-- Live MapLibre Map -->
+        <main id="map-container">
+            <div id="map"></div>
+        </main>
     </div>
 
-<script>
-    // Supports URLs such as /live-tracking.html?delivery_id=D001
-    const params = new URLSearchParams(window.location.search);
-    const deliveryId = params.get("delivery_id") || "D001";
+    <script>
+        // Extract delivery_id from URL query string
+        const urlParams = new URLSearchParams(window.location.search);
+        const deliveryId = urlParams.get("delivery_id") || "D001";
+        document.getElementById("sidebar-delivery-id").textContent = deliveryId;
 
-    const initialLatitude = 19.0205;
-    const initialLongitude = 73.0935;
+        // Panvel central reference
+        const initialLat = 18.9984;
+        const initialLng = 73.1256;
 
-    // Temporary testing style. Configure MapTiler for the final map.
-    const map = new maplibregl.Map({
-        container: "map",
-        style: "https://demotiles.maplibre.org/styles/osm-bright-gl-style/style.json",
-        center: [initialLongitude, initialLatitude],
-        zoom: 13
-    });
-
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
-
-    const driverElement = document.createElement("div");
-    driverElement.className = "driver-icon";
-    driverElement.textContent = "🏍️";
-
-    const driverMarker = new maplibregl.Marker({
-        element: driverElement,
-        anchor: "bottom"
-    })
-    .setLngLat([initialLongitude, initialLatitude])
-    .setPopup(new maplibregl.Popup().setText("BloodLink delivery partner"))
-    .addTo(map);
-
-    const destinationElement = document.createElement("div");
-    destinationElement.className = "destination-icon";
-    destinationElement.textContent = "🏥";
-
-    let destinationMarker = null;
-    let destinationCoordinates = null;
-    let lastRouteStart = null;
-    let lastRouteDestination = null;
-    let lastDriverCoordinates = null;
-    let locationRequestInProgress = false;
-
-    document.getElementById("delivery-id").textContent = deliveryId;
-
-    map.on("load", () => {
-        map.addSource("planned-route", {
-            type: "geojson",
-            data: {
-                type: "FeatureCollection",
-                features: []
-            }
+        // Initialize MapLibre GL JS with free OSM / CARTO tile style
+        const map = new maplibregl.Map({
+            container: "map",
+            style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+            center: [initialLng, initialLat],
+            zoom: 13
         });
 
-        map.addLayer({
-            id: "planned-route-line",
-            type: "line",
-            source: "planned-route",
-            layout: {
-                "line-join": "round",
-                "line-cap": "round"
-            },
-            paint: {
-                "line-color": "#d71920",
-                "line-width": 6,
-                "line-opacity": 0.9
-            }
-        });
+        map.addControl(new maplibregl.NavigationControl(), "top-right");
 
-        updateLocation();
-        setInterval(updateLocation, 3000);
-    });
+        // Custom Marker DOM Elements
+        const riderEl = document.createElement("div");
+        riderEl.className = "custom-marker rider-pin";
+        riderEl.textContent = "🏍️";
 
-    function showConnection(message) {
-        document.getElementById("connection-status").textContent = message;
-    }
+        const hospitalEl = document.createElement("div");
+        hospitalEl.className = "custom-marker hospital-pin";
+        hospitalEl.textContent = "🏥";
 
-    function validCoordinate(value) {
-        return value !== null &&
-               value !== undefined &&
-               value !== "" &&
-               Number.isFinite(Number(value));
-    }
+        const destinationEl = document.createElement("div");
+        destinationEl.className = "custom-marker recipient-pin";
+        destinationEl.textContent = "📍";
 
-    function distanceApprox(a, b) {
-        // Approximate distance in metres; sufficient for route refresh decisions.
-        const latDiff = (a[1] - b[1]) * 111000;
-        const lngDiff = (a[0] - b[0]) *
-            111000 * Math.cos(a[1] * Math.PI / 180);
-        return Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
-    }
+        let riderMarker = new maplibregl.Marker({ element: riderEl, anchor: "bottom" })
+            .setLngLat([initialLng, initialLat])
+            .addTo(map);
 
-    async function drawRoadRoute(start, end) {
-        if (!map.getSource("planned-route")) return;
+        let hospitalMarker = null;
+        let recipientMarker = null;
 
-        const movedEnough =
-            !lastRouteStart || distanceApprox(start, lastRouteStart) > 100;
+        let lastDriverCoords = null;
+        let lastDestCoords = null;
+        let isFetching = false;
 
-        const destinationChanged =
-            !lastRouteDestination ||
-            distanceApprox(end, lastRouteDestination) > 20;
-
-        if (!movedEnough && !destinationChanged) return;
-
-        const url =
-            "https://router.project-osrm.org/route/v1/driving/" +
-            `${start[0]},${start[1]};${end[0]},${end[1]}` +
-            "?overview=full&geometries=geojson";
-
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Routing service unavailable");
-
-            const result = await response.json();
-
-            if (result.code !== "Ok" || !result.routes.length) {
-                console.warn("No road route found");
-                return;
-            }
-
-            map.getSource("planned-route").setData({
-                type: "Feature",
-                properties: {},
-                geometry: result.routes[0].geometry
+        // Setup route line on map load
+        map.on("load", () => {
+            map.addSource("delivery-route", {
+                type: "geojson",
+                data: {
+                    type: "FeatureCollection",
+                    features: []
+                }
             });
 
-            lastRouteStart = start;
-            lastRouteDestination = end;
+            // Route casing
+            map.addLayer({
+                id: "delivery-route-casing",
+                type: "line",
+                source: "delivery-route",
+                layout: { "line-join": "round", "line-cap": "round" },
+                paint: {
+                    "line-color": "#ffffff",
+                    "line-width": 8,
+                    "line-opacity": 0.8
+                }
+            });
 
-            // Use road-route duration as an ETA estimate.
-            const minutes = Math.ceil(result.routes[0].duration / 60);
-            document.getElementById("eta").textContent =
-                minutes + " minutes (estimated by routing service)";
-        } catch (error) {
-            console.error("Route error:", error);
-            // Keep the last valid route if the routing service temporarily fails.
-        }
-    }
+            // Dynamic route line
+            map.addLayer({
+                id: "delivery-route-line",
+                type: "line",
+                source: "delivery-route",
+                layout: { "line-join": "round", "line-cap": "round" },
+                paint: {
+                    "line-color": "#c9182b",
+                    "line-width": 5,
+                    "line-opacity": 0.95
+                }
+            });
 
-    async function updateLocation() {
-        if (locationRequestInProgress) return;
-        locationRequestInProgress = true;
+            // Trigger immediate tracking fetch and start polling every 3 seconds
+            fetchTrackingDetails();
+            setInterval(fetchTrackingDetails, 3500);
+        });
 
-        try {
-            const response = await fetch(
-                `/api/delivery/${encodeURIComponent(deliveryId)}/location`
-            );
+        // OSRM Driving Route Line Support
+        async function updateOSRMRoute(driverCoord, destCoord) {
+            if (!driverCoord || !destCoord) return;
+            const url = `https://router.project-osrm.org/route/v1/driving/${driverCoord[0]},${driverCoord[1]};${destCoord[0]},${destCoord[1]}?overview=full&geometries=geojson`;
 
-            if (!response.ok) {
-                throw new Error(`Tracking API returned ${response.status}`);
+            try {
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const json = await res.json();
+                if (json.code === "Ok" && json.routes && json.routes.length > 0) {
+                    const routeGeom = json.routes[0].geometry;
+                    if (map.getSource("delivery-route")) {
+                        map.getSource("delivery-route").setData({
+                            type: "Feature",
+                            geometry: routeGeom
+                        });
+                    }
+
+                    // Calculate ETA from route duration
+                    const etaMinutes = Math.max(1, Math.round(json.routes[0].duration / 60));
+                    document.getElementById("eta-display").innerHTML = `${etaMinutes} <span>mins</span>`;
+                }
+            } catch (err) {
+                console.warn("[OSRM] Fallback to direct routing:", err);
             }
+        }
 
-            const result = await response.json();
+        // Fetch Live Tracking Payload from Backend
+        async function fetchTrackingDetails() {
+            if (isFetching) return;
+            isFetching = true;
 
-            if (!result.success || !result.data) {
-                showConnection("Delivery not found");
+            try {
+                // Call /api/tracking/<delivery_id>
+                const res = await fetch(`/api/tracking/${encodeURIComponent(deliveryId)}`);
+                if (!res.ok) {
+                    document.getElementById("meta-last-ping").textContent = "Delivery not found";
+                    return;
+                }
+
+                const json = await res.json();
+                if (!json.success || !json.data) return;
+
+                const data = json.data;
+
+                // 1. Update text metadata
+                document.getElementById("sidebar-delivery-id").textContent = data.delivery_id;
+                document.getElementById("driver-name").textContent = data.partner_name || "Rahul Sharma";
+                document.getElementById("driver-avatar").textContent = (data.partner_name || "R")[0].toUpperCase();
+                document.getElementById("driver-vehicle").innerHTML = `<i class="fa fa-motorcycle text-danger"></i> ${data.vehicle_type || 'Delivery Motorbike'}`;
+                if (data.phone) {
+                    document.getElementById("driver-call-link").href = `tel:${data.phone}`;
+                }
+
+                document.getElementById("meta-recipient-name").textContent = data.customer_name || "Emergency Patient";
+                document.getElementById("meta-recipient-phone").textContent = data.customer_phone || "--";
+                document.getElementById("meta-blood-group").textContent = data.blood_group || "A+";
+                document.getElementById("meta-hospital-name").textContent = data.hospital_name || "Hospital Blood Bank";
+                document.getElementById("meta-destination").textContent = data.destination || "Panvel";
+
+                if (data.recorded_at) {
+                    const pingDate = new Date(data.recorded_at);
+                    document.getElementById("meta-last-ping").textContent = pingDate.toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                } else {
+                    document.getElementById("meta-last-ping").textContent = "Just now";
+                }
+
+                // 2. Update Timeline based on status
+                updateStatusTimeline(data.status);
+
+                // 3. Update Coordinates & Markers
+                if (data.latitude && data.longitude) {
+                    const currentDriver = [parseFloat(data.longitude), parseFloat(data.latitude)];
+                    riderMarker.setLngLat(currentDriver);
+
+                    let destCoord = null;
+                    if (data.destination_latitude && data.destination_longitude) {
+                        destCoord = [parseFloat(data.destination_longitude), parseFloat(data.destination_latitude)];
+                        if (!recipientMarker) {
+                            recipientMarker = new maplibregl.Marker({ element: destinationEl, anchor: "bottom" })
+                                .setLngLat(destCoord)
+                                .addTo(map);
+                        } else {
+                            recipientMarker.setLngLat(destCoord);
+                        }
+                    }
+
+                    // Fit map bounds smoothly
+                    if (destCoord && (!lastDriverCoords || Math.abs(currentDriver[0] - lastDriverCoords[0]) > 0.0005)) {
+                        updateOSRMRoute(currentDriver, destCoord);
+                        const bounds = new maplibregl.LngLatBounds().extend(currentDriver).extend(destCoord);
+                        map.fitBounds(bounds, { padding: 90, maxZoom: 15, duration: 1000 });
+                    }
+
+                    lastDriverCoords = currentDriver;
+                }
+
+            } catch (err) {
+                console.error("[TRACKING ERROR]", err);
+            } finally {
+                isFetching = false;
+            }
+        }
+
+        // Timeline Step Highlight Handler
+        function updateStatusTimeline(status) {
+            const normStatus = (status || "Assigned").toLowerCase();
+
+            const stepAssigned = document.getElementById("step-assigned");
+            const stepOnTheWay = document.getElementById("step-ontheway");
+            const stepReached = document.getElementById("step-reached");
+            const stepDelivered = document.getElementById("step-delivered");
+
+            // Reset
+            [stepAssigned, stepOnTheWay, stepReached, stepDelivered].forEach(el => {
+                el.className = "timeline-step";
+            });
+
+            if (normStatus === "assigned") {
+                stepAssigned.className = "timeline-step active";
+                document.getElementById("header-status-pill").textContent = "Partner Assigned";
+            } else if (normStatus === "on the way") {
+                stepAssigned.className = "timeline-step completed";
+                stepOnTheWay.className = "timeline-step active";
+                document.getElementById("header-status-pill").textContent = "On The Way";
+            } else if (normStatus === "reached" || normStatus === "arrived") {
+                stepAssigned.className = "timeline-step completed";
+                stepOnTheWay.className = "timeline-step completed";
+                stepReached.className = "timeline-step active";
+                document.getElementById("header-status-pill").textContent = "Reached Destination";
+                document.getElementById("eta-display").innerHTML = `0 <span>mins</span>`;
+            } else if (normStatus === "delivered") {
+                stepAssigned.className = "timeline-step completed";
+                stepOnTheWay.className = "timeline-step completed";
+                stepReached.className = "timeline-step completed";
+                stepDelivered.className = "timeline-step completed";
+                document.getElementById("header-status-pill").textContent = "Delivered";
+                document.getElementById("eta-display").innerHTML = `0 <span>mins</span>`;
+
+                // Show delivered box and hide OTP form
+                document.getElementById("delivered-box").style.display = "block";
+                document.getElementById("otp-section").style.display = "none";
+            }
+        }
+
+        // Recipient OTP Verification Submission
+        document.getElementById("submit-otp-btn").addEventListener("click", async () => {
+            const otpVal = document.getElementById("otp-code-input").value.trim();
+            const msgEl = document.getElementById("otp-status-message");
+
+            if (!otpVal || otpVal.length !== 6) {
+                msgEl.style.color = "#dc2626";
+                msgEl.textContent = "Please enter a valid 6-digit OTP code.";
                 return;
             }
 
-            const d = result.data;
+            msgEl.style.color = "#475569";
+            msgEl.textContent = "Verifying OTP with hospital server...";
 
-            document.getElementById("delivery-id").textContent =
-                d.delivery_id || deliveryId;
-            document.getElementById("status").textContent =
-                d.status || "Assigned";
-            if (document.getElementById("customer-name")) {
-                document.getElementById("customer-name").textContent =
-                    d.customer_name || "Emergency Recipient";
-            }
-            if (document.getElementById("customer-phone")) {
-                document.getElementById("customer-phone").textContent =
-                    d.customer_phone || "--";
-            }
-            document.getElementById("driver").textContent =
-                d.partner_name || "Not assigned";
-            document.getElementById("phone").textContent =
-                d.phone || "--";
-            document.getElementById("latitude").textContent =
-                d.latitude ?? "--";
-            document.getElementById("longitude").textContent =
-                d.longitude ?? "--";
-            
-document.getElementById("timestamp").textContent =
-    d.recorded_at
-        ? new Date(d.recorded_at).toLocaleString("en-IN", {
-              timeZone: "Asia/Kolkata",
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-              hour12: true
-          }) + "IST"
-        : "Waiting for location update";
+            try {
+                const res = await fetch("/api/verify-otp", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        delivery_id: deliveryId,
+                        otp: otpVal
+                    })
+                });
 
-
-            if (String(d.status || "").toLowerCase() === "arrived") {
-                document.getElementById("eta").textContent = "Driver has arrived";
-            } else if (!d.destination_latitude || !d.destination_longitude) {
-                document.getElementById("eta").textContent = "Destination unavailable";
-            } else if (d.eta_minutes) {
-                // This is replaced by the OSRM estimate when a route is available.
-                document.getElementById("eta").textContent =
-                    d.eta_minutes + " minutes";
-            }
-
-            showConnection("Connected to tracking API");
-
-            const hasDriverLocation =
-                validCoordinate(d.latitude) &&
-                validCoordinate(d.longitude);
-
-            const hasDestination =
-                validCoordinate(d.destination_latitude) &&
-                validCoordinate(d.destination_longitude);
-
-            if (hasDriverLocation) {
-                const driver = [Number(d.longitude), Number(d.latitude)];
-
-                driverMarker.setLngLat(driver);
-
-                driverMarker.setPopup(
-                    new maplibregl.Popup().setHTML(
-                        "<b>Delivery Partner</b><br>" +
-                        "Name: " + escapeHtml(d.partner_name || "N/A") + "<br>" +
-                        "Vehicle: " + escapeHtml(d.vehicle_type || "N/A") + "<br>" +
-                        "Status: " + escapeHtml(d.status || "N/A")
-                    )
-                );
-
-                lastDriverCoordinates = driver;
-
-                if (hasDestination) {
-                    const destination = [
-                        Number(d.destination_longitude),
-                        Number(d.destination_latitude)
-                    ];
-
-                    if (
-                        !destinationCoordinates ||
-                        distanceApprox(destination, destinationCoordinates) > 1
-                    ) {
-                        destinationCoordinates = destination;
-
-                        if (destinationMarker) destinationMarker.remove();
-
-                        destinationMarker = new maplibregl.Marker({
-                            element: destinationElement,
-                            anchor: "bottom"
-                        })
-                        .setLngLat(destination)
-                        .setPopup(
-                            new maplibregl.Popup().setText(
-                                d.hospital_name || "Destination"
-                            )
-                        )
-                        .addTo(map);
-                    }
-
-                    await drawRoadRoute(driver, destination);
+                const data = await res.json();
+                if (data.success) {
+                    msgEl.style.color = "#16a34a";
+                    msgEl.textContent = "✓ OTP Verified! Delivery marked as Delivered.";
+                    document.getElementById("delivered-timestamp").textContent = "Delivered at: " + (data.delivered_at || new Date().toLocaleTimeString());
+                    document.getElementById("delivered-box").style.display = "block";
+                    document.getElementById("otp-section").style.display = "none";
+                    updateStatusTimeline("Delivered");
+                } else {
+                    msgEl.style.color = "#dc2626";
+                    msgEl.textContent = data.message || "Invalid OTP code. Please try again.";
                 }
-
-                // Avoid repeatedly zooming the map on every 3-second update.
-                if (!map.userInteracting) {
-                    map.easeTo({
-                        center: driver,
-                        duration: 700
-                    });
-                }
+            } catch (err) {
+                msgEl.style.color = "#dc2626";
+                msgEl.textContent = "Network error verifying OTP. Please try again.";
             }
-        } catch (error) {
-            console.error("Tracking error:", error);
-            showConnection("Connection error — check Flask server");
-        } finally {
-            locationRequestInProgress = false;
-        }
-    }
-
-    function escapeHtml(value) {
-        return String(value).replace(/[&<>"']/g, char => ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&#39;"
-        })[char]);
-    }
-
-    // Don't force the camera back while the user is exploring the map.
-    map.on("dragstart", () => { map.userInteracting = true; });
-    map.on("zoomstart", () => { map.userInteracting = true; });
-    map.on("dragend", () => {
-        setTimeout(() => { map.userInteracting = false; }, 5000);
-    });
-    map.on("zoomend", () => {
-        setTimeout(() => { map.userInteracting = false; }, 5000);
-    });
-</script>
+        });
+    </script>
 </body>
 </html>

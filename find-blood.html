@@ -31,7 +31,7 @@
 							<li class="nav-item"><a class="nav-link" href="/">Home</a></li>
 							<li class="nav-item"><a class="nav-link" href="/about">About Us</a></li>
 							<li class="nav-item"><a class="nav-link active" href="/find-blood">Find Blood</a></li>
-							<li class="nav-item"><a class="nav-link" href="javascript:;">Donate Blood</a></li>
+							<li class="nav-item"><a class="nav-link" href="/admin"><i class="fa fa-user-shield me-1"></i> Admin</a></li>
 						</ul>
 					</div>
 					<div class="navbar-toggle"></div>                        
@@ -145,9 +145,18 @@
 									Your Location / Area <span class="text-danger">*</span>
 								</label>
 								<div class="input-group">
-									<input type="text" name="location" id="userLocationInput" class="form-control" placeholder="e.g. New Panvel, Kharghar, Khanda Colony" required>
+									<input type="text" name="location" id="userLocationInput" list="panvelAreasList" class="form-control" placeholder="e.g. New Panvel, Kharghar, Khanda Colony" required>
+									<datalist id="panvelAreasList">
+										<option value="New Panvel">
+										<option value="Old Panvel">
+										<option value="Khanda Colony">
+										<option value="Kamothe">
+										<option value="Kharghar">
+										<option value="Kalamboli">
+										<option value="Karanjade">
+									</datalist>
 								</div>
-								<small class="form-note text-muted">Used to find the closest hospitals.</small>
+								<small class="form-note text-muted">Used to find closest hospitals with available stock.</small>
 							</div>
 							<div class="col-md-6 mb-3">
 								<label class="form-label">

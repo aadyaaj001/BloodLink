@@ -285,6 +285,8 @@ LOCATION_COORDS = {
     "khanda colony": (18.9975, 73.1010),
     "kharghar": (19.0474, 73.0664),
     "kamothe": (19.0186, 73.0952),
+    "kalamboli": (19.0270, 73.1025),
+    "karanjade": (18.9750, 73.0980),
     "lodhivali": (18.9500, 73.2200),
     "vichumbe": (18.9700, 73.1400),
     "sector 19": (19.0005, 73.1200),
@@ -295,6 +297,45 @@ LOCATION_COORDS = {
     "station": (18.9922, 73.1095)
 }
 DEFAULT_USER_COORDS = (18.9900, 73.1150)  # Central Panvel fallback coordinates
+
+# Area streets and landmarks directory for map filtering and auto-routing
+AREA_STREETS = {
+    "New Panvel": [
+        {"name": "Sector 19 Main Road", "latitude": 19.0005, "longitude": 73.1200, "landmark": "Near D-Mart Sector 19"},
+        {"name": "Sector 15 Market Road", "latitude": 18.9990, "longitude": 73.1220, "landmark": "Near CKT College"},
+        {"name": "Sector 8 Garden Street", "latitude": 18.9950, "longitude": 73.1160, "landmark": "Shivaji Chowk New Panvel"},
+        {"name": "Sector 1S Station Link Road", "latitude": 18.9925, "longitude": 73.1170, "landmark": "New Panvel East Gate"}
+    ],
+    "Old Panvel": [
+        {"name": "Shivaji Road", "latitude": 18.9917, "longitude": 73.1102, "landmark": "Near Panvel Municipal Council"},
+        {"name": "Uran Naka Highway", "latitude": 18.9895, "longitude": 73.1105, "landmark": "Near Lifeline Hospital"},
+        {"name": "Bazaar Peth", "latitude": 18.9880, "longitude": 73.1130, "landmark": "Old Panvel Central Bazaar"},
+        {"name": "Tapal Naka", "latitude": 18.9930, "longitude": 73.1080, "landmark": "Near Panvel ST Stand"}
+    ],
+    "Khanda Colony": [
+        {"name": "Sector 6 High Street", "latitude": 18.9975, "longitude": 73.1010, "landmark": "Khandeshwar Flyover Link"},
+        {"name": "Sector 8 Khanda Road", "latitude": 18.9960, "longitude": 73.1040, "landmark": "Khanda Sports Complex"},
+        {"name": "Sector 13 Colony Road", "latitude": 18.9990, "longitude": 73.0990, "landmark": "Near Khandeshwar Station Gate"}
+    ],
+    "Kamothe": [
+        {"name": "Sector 11 Main Road", "latitude": 19.0186, "longitude": 73.0952, "landmark": "Near MGM Hospital & Medical College"},
+        {"name": "Sector 6 Commercial Street", "latitude": 19.0140, "longitude": 73.0920, "landmark": "Kamothe Railway Station Road"},
+        {"name": "Sector 20 Expressway Junction", "latitude": 19.0230, "longitude": 73.0980, "landmark": "Sion-Panvel Highway Exit"}
+    ],
+    "Kharghar": [
+        {"name": "Utsav Chowk Boulevard", "latitude": 19.0474, "longitude": 73.0664, "landmark": "Central Utsav Chowk"},
+        {"name": "Sector 20 Shilp Chowk", "latitude": 19.0420, "longitude": 73.0710, "landmark": "Near Medicity Hospital"},
+        {"name": "Sector 7 Hiranandani Road", "latitude": 19.0350, "longitude": 73.0640, "landmark": "Near Central Park Metro"}
+    ],
+    "Kalamboli": [
+        {"name": "Steel Market Road", "latitude": 19.0270, "longitude": 73.1025, "landmark": "Highway Circle Kalamboli"},
+        {"name": "Sector 4 Residence Avenue", "latitude": 19.0290, "longitude": 73.1050, "landmark": "Kalamboli Police Station Road"}
+    ],
+    "Karanjade": [
+        {"name": "Sector 4 Main Ring Road", "latitude": 18.9750, "longitude": 73.0980, "landmark": "Near Karanjade Bridge"},
+        {"name": "Sector 6 Canal Road", "latitude": 18.9780, "longitude": 73.1010, "landmark": "Near Navi Mumbai Airport Side"}
+    ]
+}
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -616,10 +657,91 @@ def get_latest_location(delivery_id):
     return None
 
 # -------------------------------------------------------------
+# Area & Streets Mapping API (MapLibre GL JS Filter)
+# -------------------------------------------------------------
+
+@app.route('/get-area-streets', methods=['GET'])
+def get_area_streets():
+    """
+    Returns street and landmark coordinates for an area in Panvel/Navi Mumbai.
+    Used by MapLibre GL JS dropdown to plot markers, center viewport, and draw routes.
+    """
+    area_name = request.args.get('area', '').strip()
+    if not area_name:
+        # Return all available areas with their street points
+        return jsonify({
+            "success": True,
+            "areas": list(AREA_STREETS.keys()),
+            "count": len(AREA_STREETS)
+        })
+
+    matched_area = None
+    for key in AREA_STREETS:
+        if key.lower() == area_name.lower() or area_name.lower() in key.lower():
+            matched_area = key
+            break
+
+    if not matched_area:
+        # Fallback to general location coords if known
+        clean_key = area_name.lower()
+        coords = LOCATION_COORDS.get(clean_key, DEFAULT_USER_COORDS)
+        return jsonify({
+            "success": True,
+            "area": area_name,
+            "center": {"latitude": coords[0], "longitude": coords[1]},
+            "streets": [
+                {
+                    "name": f"{area_name} Main Street",
+                    "latitude": coords[0],
+                    "longitude": coords[1],
+                    "landmark": f"Central {area_name}"
+                }
+            ]
+        })
+
+    streets = AREA_STREETS[matched_area]
+    center_coords = LOCATION_COORDS.get(matched_area.lower(), DEFAULT_USER_COORDS)
+
+    # Also include hospitals in or near this area
+    hospitals_map = load_hospitals()
+    nearby_hospitals = []
+    for h_id, h_data in hospitals_map.items():
+        try:
+            h_lat = float(h_data.get('latitude', 0))
+            h_lon = float(h_data.get('longitude', 0))
+            dist = haversine_distance(center_coords[0], center_coords[1], h_lat, h_lon)
+            if dist is not None and dist <= 12.0:
+                nearby_hospitals.append({
+                    "hospital_id": h_id,
+                    "hospital_name": h_data.get("hospital_name"),
+                    "latitude": h_lat,
+                    "longitude": h_lon,
+                    "address": h_data.get("address"),
+                    "phone": h_data.get("phone"),
+                    "distance_km": dist
+                })
+        except Exception:
+            continue
+
+    nearby_hospitals.sort(key=lambda x: x["distance_km"])
+
+    return jsonify({
+        "success": True,
+        "area": matched_area,
+        "center": {
+            "latitude": center_coords[0],
+            "longitude": center_coords[1]
+        },
+        "streets": streets,
+        "hospitals": nearby_hospitals
+    })
+
+# -------------------------------------------------------------
 # Live Delivery Location API (GET: Track, POST: Genuine GPS Updates)
 # -------------------------------------------------------------
 
 @app.route('/api/delivery/<delivery_id>/location', methods=['GET', 'POST'])
+@app.route('/api/tracking/<delivery_id>', methods=['GET'])
 def delivery_location_api(delivery_id):
     try:
         database_delivery_id = parse_delivery_id(delivery_id)
@@ -877,18 +999,21 @@ def update_delivery_status(delivery_id):
         }), 500
 
 @app.route('/api/delivery/<delivery_id>/verify-otp', methods=['POST'])
-def verify_delivery_otp(delivery_id):
+@app.route('/api/verify-otp', methods=['POST'])
+def verify_delivery_otp(delivery_id=None):
     """
     Recipient OTP verification endpoint.
+    Supports /api/delivery/<delivery_id>/verify-otp and /api/verify-otp (with delivery_id in JSON).
     Verifies 6-digit OTP, keeps Reached and Delivered separate,
     records completion timestamp, and frees partner upon successful delivery.
     """
     try:
-        database_delivery_id = parse_delivery_id(delivery_id)
+        data = request.get_json(silent=True) or {}
+        target_delivery_id = delivery_id or data.get("delivery_id")
+        database_delivery_id = parse_delivery_id(target_delivery_id)
         if database_delivery_id is None:
             return jsonify({"success": False, "message": "Invalid delivery ID"}), 400
 
-        data = request.get_json(silent=True) or {}
         submitted_otp = str(data.get("otp", "")).strip()
 
         if not submitted_otp:
@@ -1255,6 +1380,42 @@ def availability():
     )
 
 
+@app.route('/verify-request', methods=['GET', 'POST'])
+def verify_request_page():
+    """
+    User-side medical requisition verification step.
+    Receives hospital selection and user requirement, renders verify-request.html
+    for PDF upload and validation before final dispatch.
+    """
+    hospital_id = request.form.get('hospital_id', '').strip() or request.args.get('hospital_id', '').strip()
+    blood_group = request.form.get('blood_group', '').strip().upper() or request.args.get('blood_group', '').strip().upper()
+    patient_name = request.form.get('name', '').strip() or request.args.get('name', '').strip() or session.get('user_name', '').strip() or "Emergency Recipient"
+    contact_number = request.form.get('phone', '').strip() or request.args.get('phone', '').strip() or session.get('user_phone', '').strip() or "+919876543210"
+    email = request.form.get('email', '').strip() or request.args.get('email', '').strip() or session.get('user_email', '').strip()
+    units_needed = request.form.get('units', '1').strip() or request.args.get('units', '1').strip()
+    urgency = request.form.get('urgency', 'Urgent').strip() or request.args.get('urgency', 'Urgent').strip()
+    location = request.form.get('location', '').strip() or request.args.get('location', '').strip()
+    distance = request.form.get('distance', '').strip() or request.args.get('distance', '').strip()
+
+    hospitals_map = load_hospitals()
+    hospital_info = hospitals_map.get(hospital_id, {})
+    hospital_name = hospital_info.get('hospital_name', 'Selected Hospital')
+
+    return render_template(
+        'verify-request.html',
+        hospital_id=hospital_id,
+        hospital_name=hospital_name,
+        blood_group=blood_group,
+        patient_name=patient_name,
+        contact_number=contact_number,
+        email=email,
+        units=units_needed,
+        urgency=urgency,
+        location=location,
+        distance=distance
+    )
+
+
 @app.route('/request-blood', methods=['POST'])
 def request_blood():
     hospital_id = request.form.get('hospital_id', '').strip()
@@ -1313,6 +1474,7 @@ def request_blood():
 
     delivery_id = None
     assigned_partner = None
+    otp_digits = session.get(f"recipient_otp_{contact_number}")
 
     if active_delivery:
         # Reuse existing delivery and assigned partner
@@ -1402,6 +1564,7 @@ def request_blood():
         location=location,
         distance=distance,
         delivery_id=formatted_delivery_id,
+        recipient_otp=otp_digits if delivery_id else None,
         partner_name=driver_name,
         partner_phone=(
             assigned_partner["phone"]
@@ -1455,7 +1618,11 @@ def admin_login_api():
     if admin_record["password_hash"] != pwd_hash:
         return jsonify({"success": False, "message": "Invalid admin credentials"}), 401
 
-    # Generate 6-digit admin OTP (valid for 5 minutes, max 3 attempts)
+    # Authenticate directly via admin password
+    session['admin_authenticated'] = True
+    session['admin_username'] = username
+
+    # Generate 6-digit admin OTP for backwards compatibility if needed
     otp_code = f"{secrets.randbelow(900000) + 100000:06d}"
     admin_record["otp_hash"] = hashlib.sha256(otp_code.encode()).hexdigest()
     admin_record["otp_expires_at"] = datetime.now(timezone.utc) + timedelta(minutes=5)
@@ -1466,8 +1633,10 @@ def admin_login_api():
 
     return jsonify({
         "success": True,
-        "otp_required": True,
-        "message": "Admin credentials verified. 2FA verification OTP generated."
+        "authenticated": True,
+        "otp_required": False,
+        "demo_otp": otp_code,
+        "message": "Admin authenticated successfully."
     })
 
 @app.route('/api/admin/verify-otp', methods=['POST'])
@@ -1584,6 +1753,16 @@ def admin_dashboard_page():
         d["partner"] = partner_map.get(pid, {})
         d["formatted_id"] = f"D{d['id']:03d}"
 
+    # If client requests HTML browser page, render admin.html template
+    if request.accept_mimetypes.accept_html and not request.args.get('json'):
+        return render_template(
+            'admin.html',
+            authenticated=bool(session.get('admin_authenticated')),
+            username=session.get('admin_username', 'Admin'),
+            inventory=inventory,
+            deliveries=deliveries_list
+        )
+
     return jsonify({
         "title": "BloodLink Admin Dashboard",
         "authenticated": bool(session.get('admin_authenticated')),
@@ -1598,6 +1777,7 @@ def admin_dashboard_page():
 # -------------------------------------------------------------
 
 @app.route('/api/hospital/verify-pdf', methods=['POST'])
+@app.route('/api/upload-pdf', methods=['POST'])
 def verify_hospital_pdf():
     """
     Hospital PDF verification using pypdf.

@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Medical Request - BloodLink</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/slicknav.min.css" rel="stylesheet">
+    <link href="css/all.min.css" rel="stylesheet">
+    <link href="css/custom.css" rel="stylesheet">
+    <link href="css/responsive.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .verify-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        .upload-dropzone {
+            border: 2px dashed #cbd5e1;
+            border-radius: 14px;
+            padding: 40px 20px;
+            text-align: center;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+
+        .upload-dropzone:hover, .upload-dropzone.dragover {
+            border-color: #c9182b;
+            background: #fef2f2;
+        }
+
+        .blood-badge {
+            background: #dc3545;
+            color: #ffffff;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .hospital-info-pill {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+
+        .btn-proceed {
+            background: #16a34a;
+            color: white;
+            font-weight: 700;
+            padding: 12px 28px;
+            border-radius: 10px;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-proceed:hover {
+            background: #15803d;
+            box-shadow: 0 4px 15px rgba(22, 163, 74, 0.35);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="main-header">
+        <div class="header-sticky">
+            <nav class="navbar navbar-expand-lg">
+                <div class="container">
+                    <a class="navbar-brand" href="/"><img src="images/logo.png" alt="BloodLink"></a>
+                    <div class="collapse navbar-collapse main-menu">
+                        <ul class="navbar-nav mr-auto">
+                            <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/about">About Us</a></li>
+                            <li class="nav-item"><a class="nav-link" href="/find-blood">Find Blood</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <section class="py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-12 mb-3">
+                    <div class="back_btn">
+                        <a href="javascript:history.back()"><i class="fa fa-arrow-left"></i> Back to Hospital Availability</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <div class="verify-card">
+                        <div class="text-center mb-4">
+                            <div style="display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: #fee2e2; color: #b91c1c; font-size: 28px; margin-bottom: 12px;">
+                                <i class="fa fa-file-medical"></i>
+                            </div>
+                            <h2 class="fw-bold" style="color: #64050d;">Verify Medical Request</h2>
+                            <p class="text-muted">Upload your doctor's requisition or hospital prescription PDF to verify and dispatch blood immediately.</p>
+                        </div>
+
+                        <!-- Selected Hospital & Requirement Summary -->
+                        <div class="hospital-info-pill">
+                            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                                <h5 class="fw-bold mb-0 text-primary">
+                                    <i class="fa fa-hospital me-1"></i> {{ hospital_name }}
+                                </h5>
+                                <span class="blood-badge">{{ blood_group }}</span>
+                            </div>
+                            <div class="row g-2 text-dark" style="font-size: 14px;">
+                                <div class="col-sm-6"><strong>Patient:</strong> {{ patient_name }} ({{ contact_number }})</div>
+                                <div class="col-sm-6"><strong>Units Needed:</strong> {{ units }} Unit(s)</div>
+                                <div class="col-sm-6"><strong>Urgency:</strong> <span class="badge bg-danger">{{ urgency }}</span></div>
+                                <div class="col-sm-6"><strong>Location:</strong> {{ location }} {% if distance %}({{ distance }}){% endif %}</div>
+                            </div>
+                        </div>
+
+                        <!-- Dropzone for PDF Upload -->
+                        <div class="upload-dropzone mb-3" id="userPdfDropzone">
+                            <i class="fa fa-cloud-upload-alt fa-3x text-danger mb-2"></i>
+                            <h5 class="fw-bold mb-1">Upload Hospital Requisition PDF</h5>
+                            <p class="text-muted small mb-3">Drag & drop your official medical requisition or hospital prescription (Max 5MB)</p>
+                            <input type="file" id="userPdfInput" accept=".pdf" style="display: none;">
+                            <button type="button" class="btn btn-outline-danger px-4 py-2" onclick="document.getElementById('userPdfInput').click()">
+                                <i class="fa fa-folder-open me-1"></i> Choose PDF File
+                            </button>
+                        </div>
+
+                        <!-- Progress Bar -->
+                        <div id="uploadProgressContainer" class="mb-3" style="display: none;">
+                            <div class="d-flex justify-content-between small text-muted mb-1">
+                                <span id="progressLabel">Verifying requisition document...</span>
+                                <span id="progressPercent">50%</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" style="width: 50%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Verification Result Card -->
+                        <div id="verificationResultCard" class="mb-4 p-3 rounded" style="display: none;"></div>
+
+                        <!-- Final Submission Form (Directs to confirmation & driver assignment) -->
+                        <form id="finalConfirmForm" action="/request-blood" method="POST">
+                            <input type="hidden" name="hospital_id" value="{{ hospital_id }}">
+                            <input type="hidden" name="blood_group" value="{{ blood_group }}">
+                            <input type="hidden" name="name" value="{{ patient_name }}">
+                            <input type="hidden" name="phone" value="{{ contact_number }}">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <input type="hidden" name="units" value="{{ units }}">
+                            <input type="hidden" name="urgency" value="{{ urgency }}">
+                            <input type="hidden" name="location" value="{{ location }}">
+                            <input type="hidden" name="distance" value="{{ distance }}">
+                            <input type="hidden" name="pdf_verified" id="pdfVerifiedField" value="0">
+
+                            <div class="text-center mt-3">
+                                <button type="submit" id="confirmRequestBtn" class="btn btn-proceed w-100 py-3" style="font-size: 16px;">
+                                    Confirm Blood Request & Assign Delivery Partner <i class="fa fa-arrow-right ms-2"></i>
+                                </button>
+                                <p class="text-muted small mt-2 mb-0">
+                                    <i class="fa fa-shield-alt text-success me-1"></i> Once confirmed, the closest delivery partner will be dispatched with live tracking.
+                                </p>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const dropzone = document.getElementById("userPdfDropzone");
+        const fileInput = document.getElementById("userPdfInput");
+        const progressBox = document.getElementById("uploadProgressContainer");
+        const progressBar = document.getElementById("progressBar");
+        const progressPercent = document.getElementById("progressPercent");
+        const resultCard = document.getElementById("verificationResultCard");
+        const confirmBtn = document.getElementById("confirmRequestBtn");
+        const pdfVerifiedField = document.getElementById("pdfVerifiedField");
+
+        ['dragenter', 'dragover'].forEach(name => {
+            dropzone.addEventListener(name, (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(name => {
+            dropzone.addEventListener(name, (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+            });
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length) uploadAndVerifyPdf(files[0]);
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) uploadAndVerifyPdf(fileInput.files[0]);
+        });
+
+        async function uploadAndVerifyPdf(file) {
+            if (!file.name.toLowerCase().endsWith(".pdf")) {
+                alert("Please select an authentic .pdf medical file.");
+                return;
+            }
+
+            if (file.size > 5 * 1024 * 1024) {
+                alert("File size exceeds 5MB limit.");
+                return;
+            }
+
+            resultCard.style.display = "none";
+            progressBox.style.display = "block";
+            progressBar.style.width = "40%";
+            progressPercent.textContent = "Uploading & extracting...";
+
+            const fd = new FormData();
+            fd.append("file", file);
+
+            try {
+                const res = await fetch("/api/upload-pdf", {
+                    method: "POST",
+                    body: fd
+                });
+
+                progressBar.style.width = "100%";
+                progressPercent.textContent = "100% Analyzed";
+
+                const data = await res.json();
+                resultCard.style.display = "block";
+
+                if (!data.success) {
+                    resultCard.className = "mb-4 p-3 rounded bg-danger-subtle text-danger border border-danger";
+                    resultCard.innerHTML = `
+                        <div class="fw-bold"><i class="fa fa-times-circle me-1"></i> Verification Failed</div>
+                        <div class="small mt-1">${data.message || 'Error processing document.'}</div>
+                    `;
+                    pdfVerifiedField.value = "0";
+                } else if (data.is_scanned_image) {
+                    resultCard.className = "mb-4 p-3 rounded bg-warning-subtle text-dark border border-warning";
+                    resultCard.innerHTML = `
+                        <div class="fw-bold text-warning-emphasis"><i class="fa fa-exclamation-triangle me-1"></i> Scanned / Image-Only Document Detected</div>
+                        <div class="small mt-1">${data.message}</div>
+                        <div class="small text-muted mt-1">Pages: ${data.pages} | You may still proceed with emergency coordinator review.</div>
+                    `;
+                    pdfVerifiedField.value = "1";
+                    confirmBtn.innerHTML = `Proceed with Coordinator Review & Assign Driver <i class="fa fa-arrow-right ms-2"></i>`;
+                } else {
+                    resultCard.className = "mb-4 p-3 rounded bg-success-subtle text-success-emphasis border border-success";
+                    resultCard.innerHTML = `
+                        <div class="fw-bold"><i class="fa fa-check-circle me-1"></i> Requisition Verified (${data.confidence_score}% Confidence)</div>
+                        <div class="small mt-1">Matched Hospital: <strong>${data.matched_hospital || 'Hospital Registry'}</strong></div>
+                        <div class="small">Extracted Blood Group: <strong>${(data.extracted_blood_groups || []).join(', ') || '{{ blood_group }}'}</strong></div>
+                        <div class="small text-success mt-1">✓ Medical requirement authenticated. Ready for immediate dispatch.</div>
+                    `;
+                    pdfVerifiedField.value = "1";
+                    confirmBtn.innerHTML = `Confirm Verified Request & Dispatch Delivery Partner <i class="fa fa-arrow-right ms-2"></i>`;
+                    confirmBtn.style.background = "#15803d";
+                }
+            } catch (err) {
+                resultCard.style.display = "block";
+                resultCard.className = "mb-4 p-3 rounded bg-danger-subtle text-danger border border-danger";
+                resultCard.innerHTML = `<i class="fa fa-exclamation-triangle me-1"></i> Network error communicating with verification engine.`;
+            } finally {
+                setTimeout(() => { progressBox.style.display = "none"; }, 800);
+            }
+        }
+    </script>
+</body>
+</html>
