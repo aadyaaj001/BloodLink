@@ -139,11 +139,11 @@
         }
 
         .login-overlay {
-            background: rgba(15, 23, 42, 0.75);
-            backdrop-filter: blur(6px);
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
             position: fixed;
             inset: 0;
-            z-index: 1050;
+            z-index: 99999;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -329,16 +329,19 @@
             <form id="adminCredentialsForm">
                 <div class="mb-3">
                     <label class="form-label small fw-bold">Admin Username</label>
-                    <input type="text" id="adminUser" class="form-control" placeholder="admin" required value="admin">
+                    <input type="text" id="adminUser" class="form-control" placeholder="Enter admin username" required autofocus autocomplete="off">
                 </div>
                 <div class="mb-3">
                     <label class="form-label small fw-bold">Admin Password</label>
-                    <input type="password" id="adminPass" class="form-control" placeholder="Enter password" required value="admin123">
+                    <input type="password" id="adminPass" class="form-control" placeholder="Enter admin password" required autocomplete="current-password">
                 </div>
                 <div id="credError" class="text-danger small mb-3 fw-bold"></div>
                 <button type="submit" class="btn btn-danger w-100 fw-bold py-2">
                     <i class="fa fa-lock-open me-1"></i> Sign In to Admin Dashboard
                 </button>
+                <div class="text-center mt-3">
+                    <small class="text-muted">Default demo credentials: <code>admin</code> / <code>admin123</code></small>
+                </div>
             </form>
         </div>
     </div>
@@ -383,8 +386,11 @@
                     const data = await res.json();
                     if (data.success) {
                         isAuthenticated = true;
-                        // Redirect to blood availability page after successful admin login
-                        window.location.href = "/availability";
+                        // Reveal admin dashboard with inventory & deliveries
+                        document.getElementById("adminLoginOverlay").style.display = "none";
+                        document.getElementById("adminMainDashboard").style.display = "block";
+                        document.getElementById("logoutBtn").style.display = "inline-block";
+                        loadDashboardData();
                     } else {
                         err.textContent = data.message || "Invalid credentials";
                     }

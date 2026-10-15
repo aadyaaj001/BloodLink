@@ -254,9 +254,10 @@ class LocalSupabaseAdapter:
     def table(self, table_name):
         return LocalTableProxy(table_name, self.store)
 
-# Initialize Supabase client if configured, otherwise attach resilient adapter
+# Initialize Supabase client if configured and not placeholder, otherwise attach resilient adapter
 supabase = None
-if create_client and SUPABASE_URL and SUPABASE_KEY:
+is_placeholder_url = not SUPABASE_URL or "your-supabase-project" in SUPABASE_URL or "example.com" in SUPABASE_URL
+if create_client and SUPABASE_URL and SUPABASE_KEY and not is_placeholder_url:
     try:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         print("[INFO] Connected to Supabase Cloud.")
@@ -264,7 +265,7 @@ if create_client and SUPABASE_URL and SUPABASE_KEY:
         print(f"[WARN] Supabase connection failed: {e}. Falling back to resilient local store.")
         supabase = LocalSupabaseAdapter(local_store)
 else:
-    print("[INFO] Supabase credentials not provided in .env. Initialized resilient local store.")
+    print("[INFO] Supabase credentials not provided or placeholder detected. Initialized resilient local store.")
     supabase = LocalSupabaseAdapter(local_store)
 
 
@@ -1753,14 +1754,15 @@ def admin_dashboard_page():
         d["partner"] = partner_map.get(pid, {})
         d["formatted_id"] = f"D{d['id']:03d}"
 
-    # If client requests HTML browser page, render admin.html template
-    if request.accept_mimetypes.accept_html and not request.args.get('json'):
+    # Return HTML template by default (unless explicitly requesting ?json=1)
+    if not request.args.get('json'):
+        is_auth = bool(session.get('admin_authenticated'))
         return render_template(
             'admin.html',
-            authenticated=bool(session.get('admin_authenticated')),
+            authenticated=is_auth,
             username=session.get('admin_username', 'Admin'),
-            inventory=inventory,
-            deliveries=deliveries_list
+            inventory=inventory if is_auth else [],
+            deliveries=deliveries_list if is_auth else []
         )
 
     return jsonify({
