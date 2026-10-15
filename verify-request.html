@@ -169,8 +169,13 @@
                             <input type="hidden" name="pdf_verified" id="pdfVerifiedField" value="0">
 
                             <div class="text-center mt-3">
-                                <button type="submit" id="confirmRequestBtn" class="btn btn-proceed w-100 py-3" style="font-size: 16px;">
-                                    Confirm Blood Request & Assign Delivery Partner <i class="fa fa-arrow-right ms-2"></i>
+                                <!-- PDF required notice -->
+                                <div id="pdfRequiredNotice" class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
+                                    <i class="fa fa-exclamation-triangle"></i>
+                                    <span><strong>PDF Required:</strong> Please upload your hospital requisition PDF above before proceeding.</span>
+                                </div>
+                                <button type="submit" id="confirmRequestBtn" class="btn btn-proceed w-100 py-3" style="font-size: 16px;" disabled>
+                                    Confirm Blood Request &amp; Assign Delivery Partner <i class="fa fa-arrow-right ms-2"></i>
                                 </button>
                                 <p class="text-muted small mt-2 mb-0">
                                     <i class="fa fa-shield-alt text-success me-1"></i> Once confirmed, the closest delivery partner will be dispatched with live tracking.
@@ -192,6 +197,12 @@
         const resultCard = document.getElementById("verificationResultCard");
         const confirmBtn = document.getElementById("confirmRequestBtn");
         const pdfVerifiedField = document.getElementById("pdfVerifiedField");
+        const pdfRequiredNotice = document.getElementById("pdfRequiredNotice");
+
+        // Button starts disabled — PDF must be uploaded first
+        confirmBtn.disabled = true;
+        confirmBtn.style.opacity = "0.5";
+        confirmBtn.style.cursor = "not-allowed";
 
         ['dragenter', 'dragover'].forEach(name => {
             dropzone.addEventListener(name, (e) => {
@@ -254,6 +265,11 @@
                         <div class="small mt-1">${data.message || 'Error processing document.'}</div>
                     `;
                     pdfVerifiedField.value = "0";
+                    confirmBtn.disabled = true;
+                    confirmBtn.style.opacity = "0.5";
+                    confirmBtn.style.cursor = "not-allowed";
+                    pdfRequiredNotice.innerHTML = '<i class="fa fa-exclamation-triangle"></i> <span><strong>Verification Failed:</strong> Please upload a valid PDF to proceed.</span>';
+                    pdfRequiredNotice.style.display = "flex";
                 } else if (data.is_scanned_image) {
                     resultCard.className = "mb-4 p-3 rounded bg-warning-subtle text-dark border border-warning";
                     resultCard.innerHTML = `
@@ -262,7 +278,11 @@
                         <div class="small text-muted mt-1">Pages: ${data.pages} | You may still proceed with emergency coordinator review.</div>
                     `;
                     pdfVerifiedField.value = "1";
-                    confirmBtn.innerHTML = `Proceed with Coordinator Review & Assign Driver <i class="fa fa-arrow-right ms-2"></i>`;
+                    confirmBtn.disabled = false;
+                    confirmBtn.style.opacity = "1";
+                    confirmBtn.style.cursor = "pointer";
+                    pdfRequiredNotice.style.display = "none";
+                    confirmBtn.innerHTML = `Proceed with Coordinator Review &amp; Assign Driver <i class="fa fa-arrow-right ms-2"></i>`;
                 } else {
                     resultCard.className = "mb-4 p-3 rounded bg-success-subtle text-success-emphasis border border-success";
                     resultCard.innerHTML = `
@@ -272,7 +292,11 @@
                         <div class="small text-success mt-1">✓ Medical requirement authenticated. Ready for immediate dispatch.</div>
                     `;
                     pdfVerifiedField.value = "1";
-                    confirmBtn.innerHTML = `Confirm Verified Request & Dispatch Delivery Partner <i class="fa fa-arrow-right ms-2"></i>`;
+                    confirmBtn.disabled = false;
+                    confirmBtn.style.opacity = "1";
+                    confirmBtn.style.cursor = "pointer";
+                    pdfRequiredNotice.style.display = "none";
+                    confirmBtn.innerHTML = `Confirm Verified Request &amp; Dispatch Delivery Partner <i class="fa fa-arrow-right ms-2"></i>`;
                     confirmBtn.style.background = "#15803d";
                 }
             } catch (err) {

@@ -383,10 +383,8 @@
                     const data = await res.json();
                     if (data.success) {
                         isAuthenticated = true;
-                        document.getElementById("adminLoginOverlay").style.display = "none";
-                        document.getElementById("adminMainDashboard").style.display = "block";
-                        document.getElementById("logoutBtn").style.display = "inline-block";
-                        loadDashboardData();
+                        // Redirect to blood availability page after successful admin login
+                        window.location.href = "/availability";
                     } else {
                         err.textContent = data.message || "Invalid credentials";
                     }
